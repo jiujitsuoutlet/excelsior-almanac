@@ -1,0 +1,8 @@
+# Secrets never enter this repository (hold 1).
+.env
+.env.*
+!.env.example
+supabase/.temp/
+supabase/.branches/
+node_modules/
+.DS_Store
