@@ -26,7 +26,7 @@ The bootstrap commit (`.gitignore`, `README.md`) is the only commit ever made di
 
 - **Account.** ALMANAC runs in Cloudflare account `bbe6d5f6cc43632eafdd5ef854f48a25`, the founder's own account. This is not the Yoga for BJJ funnel account, and the two are never to be confused.
 - **Plan.** Workers Paid.
-- **Workers.** Four Workers: the scouts (crawl and extract), the publisher (sends signed batches to the app), the demand reader (reads the app's coverage demand and queues regions for the scout), and the console (the approval UI and its API).
+- **Workers.** Workers run the scouts (crawl and extract), the publisher (sends signed batches to the app), the demand reader (reads the app's coverage demand and queues regions for the scout), and the console (the approval UI and its API). How these jobs are split across Worker scripts is not yet decided; the schema and console pull requests decide it.
 - **Storage.** A D1 production database, and a separate D1 staging database, at no extra cost on the Paid plan.
 - **Scheduling.** Cron Triggers start the nightly and periodic jobs. Workflows carry the crawl queue, so the per-host wait (`step.sleep`) between two requests costs no CPU, and a failed step retries on its own.
 - **Console access.** Cloudflare Access sits in front of the console. Reviewers sign in with GitHub, and every reviewer's GitHub account must have two-factor authentication turned on. The one-time email PIN login method stays off.
@@ -133,7 +133,7 @@ Every surface, app or console, that shows ALMANAC place or location data carries
 
 ## 12. Build sequence and gates
 
-**Step 1.** This document, then the D1 schema, then the console. The founder hand-enters ten real events. Gate: an evidence gallery of each row beside its source page, plus rejection proofs for an anonymous caller and for a signed-in non-reviewer.
+**Step 1.** This document, then the D1 schema, then the console, with geocoding on save. The founder hand-enters ten real events. Gate: an evidence gallery of each row beside its source page, plus rejection proofs for an anonymous caller and for a signed-in non-reviewer.
 
 **Step 2.** Scout v1: Tier 1 only, Missouri and its eight bordering states, nightly, each host entered only after a recorded terms review. Gate: a first-week precision report per host. Nothing approves automatically.
 
