@@ -1,0 +1,59 @@
+# ALMANAC approval console (MAD v2.54 decision 10, v2.55 platform).
+# Identifiers only; no secrets here. Secrets: `wrangler secret put` (hold 1).
+# Local-only settings (dev identity) live in console/.dev.vars, which is gitignored.
+name = "almanac-console"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+account_id = "bbe6d5f6cc43632eafdd5ef854f48a25"
+workers_dev = true
+
+[assets]
+directory = "./public"
+
+# Production. Not deployed yet; ACCESS_AUD is filled in when the Access
+# application exists. With ACCESS_AUD empty, production refuses every request.
+[vars]
+ENVIRONMENT = "production"
+ACCESS_TEAM_DOMAIN = "jiujitsuoutlet.cloudflareaccess.com"
+ACCESS_AUD = ""
+PUBLISH_CONNECTED = "false"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "almanac"
+database_id = "c884b684-1954-4b50-a20f-7d94a62b457a"
+migrations_dir = "../migrations"
+
+# Staging. `wrangler dev --env staging` runs the console on your Mac against the
+# REAL almanac-staging database (remote = true).
+[env.staging]
+name = "almanac-console-staging"
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
+ACCESS_TEAM_DOMAIN = "jiujitsuoutlet.cloudflareaccess.com"
+ACCESS_AUD = ""
+PUBLISH_CONNECTED = "false"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "almanac-staging"
+database_id = "64dcd0c7-3c5a-4ca6-ae27-c8edba3a8a70"
+migrations_dir = "../migrations"
+remote = true
+
+# Test. A throwaway LOCAL database for the automated batteries. Never remote.
+[env.test]
+name = "almanac-console-test"
+
+[env.test.vars]
+ENVIRONMENT = "staging"
+ACCESS_TEAM_DOMAIN = "jiujitsuoutlet.cloudflareaccess.com"
+ACCESS_AUD = ""
+PUBLISH_CONNECTED = "false"
+
+[[env.test.d1_databases]]
+binding = "DB"
+database_name = "almanac-console-test"
+database_id = "00000000-0000-4000-8000-000000000000"
+migrations_dir = "../migrations"

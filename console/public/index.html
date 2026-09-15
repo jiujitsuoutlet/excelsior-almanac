@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ALMANAC console</title>
+  <link rel="stylesheet" href="/app.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">ALMANAC</span>
+    <span id="badge" class="badge badge-unknown" data-testid="env-badge">CHECKING</span>
+    <span id="who" class="who"></span>
+  </header>
+  <section id="strip" class="strip" aria-label="Status"></section>
+  <main id="main" class="main" aria-live="polite"></main>
+  <div id="overlay" class="overlay" hidden></div>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <footer class="footer">
+    <span id="legend" class="legend"></span>
+    <span class="attribution">Places: <a href="https://www.geonames.org/" rel="noreferrer" target="_blank">GeoNames</a> (CC BY 4.0). Geocoding: © <a href="https://www.openstreetmap.org/copyright" rel="noreferrer" target="_blank">OpenStreetMap contributors</a>.</span>
+  </footer>
+</body>
+</html>

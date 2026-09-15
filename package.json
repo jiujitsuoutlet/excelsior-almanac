@@ -4,9 +4,14 @@
   "description": "ALMANAC: martial arts events and academies database feeding the Excelsior app",
   "scripts": {
     "verify:schema:local": "bash scripts/verify-schema.sh local",
-    "verify:schema:staging": "bash scripts/verify-schema.sh staging"
+    "verify:schema:staging": "bash scripts/verify-schema.sh staging",
+    "test:unit": "node --test console/test/",
+    "verify:console": "bash scripts/verify-console.sh",
+    "console:staging": "bash scripts/console-staging.sh"
   },
   "devDependencies": {
-    "wrangler": "4.131.2"
-  }
+    "wrangler": "4.131.2",
+    "playwright": "1.61.1"
+  },
+  "type": "module"
 }

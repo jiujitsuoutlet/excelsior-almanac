@@ -145,6 +145,33 @@ This takes about a minute. It writes test rows to `almanac-staging`, tries to
 break every rule, then restores staging to the bookmark it took first. The last
 line must read `58 passed, 0 failed`.
 
+## Step 8: the environment marker (after the console pull request merges)
+
+The console reads a marker row inside each database to prove which environment
+it is connected to. Apply the second migration, then write the marker once.
+
+```bash
+npx wrangler d1 migrations apply almanac --remote
+```
+You see `20260915000200_environment_marker.sql` with a green check.
+
+```bash
+npx wrangler d1 execute almanac --remote --command "INSERT INTO environment_marker (id, name) VALUES (1, 'production')"
+```
+
+```bash
+npx wrangler d1 execute almanac --remote --command "SELECT name FROM environment_marker"
+```
+You see `production`. Now prove it can never change. This command must FAIL:
+
+```bash
+npx wrangler d1 execute almanac --remote --command "UPDATE environment_marker SET name = 'staging'"
+```
+Expected error contains: `environment_marker never changes`.
+
+After this step, Step 4 lists 19 tables (adding `environment_marker`) and Step 5
+counts 39 triggers.
+
 ## How status changes (for the console and for you)
 
 A status never changes by `UPDATE`. It changes when one row is added to
