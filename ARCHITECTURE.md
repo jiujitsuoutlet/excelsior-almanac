@@ -32,7 +32,7 @@ The bootstrap commit (`.gitignore`, `README.md`) is the only commit ever made di
 - **Console access.** Cloudflare Access sits in front of the console. Reviewers sign in with GitHub, and every reviewer's GitHub account must have two-factor authentication turned on. The one-time email PIN login method stays off.
 - **Authorization.** D1 has no row-level security and is never reachable from a browser. Every read and write passes through Worker code that checks the Access identity against the reviewer list.
 - **Secrets.** Credentials live in Cloudflare Worker secrets and the gitignored `.env` in this repository. Nowhere else.
-- **Agent credential.** The agent's Cloudflare credential is a custom API token named `almanac-agent`, not a `wrangler login` session. Its permissions: Workers Scripts Edit, D1 Edit, Account Settings Read, Workers Tail Read, User Details Read, Memberships Read. It is scoped to this account only, and it expires 2026-12-31. This document records the permission names only. It never records a token value.
+- **Agent credential.** The agent's Cloudflare credential is a custom API token named `almanac-agent`, not a `wrangler login` session. Its permissions: Workers Scripts Edit, D1 Edit, Account Settings Read, Workers Tail Read, User Details Read, Memberships Read. It is scoped to this account only, and it has no expiry (founder ruling 2026-09-14). This document records the permission names only. It never records a token value.
 
 ## 5. Components and data flow
 
