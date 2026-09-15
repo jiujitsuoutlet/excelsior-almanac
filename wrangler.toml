@@ -1,0 +1,22 @@
+# ALMANAC Cloudflare configuration (MAD v2.55).
+# Account: the founder's own Cloudflare account. Identifiers only; no secrets here.
+name = "almanac"
+compatibility_date = "2026-09-01"
+account_id = "bbe6d5f6cc43632eafdd5ef854f48a25"
+
+# Production database.
+[[d1_databases]]
+binding = "DB"
+database_name = "almanac"
+database_id = "c884b684-1954-4b50-a20f-7d94a62b457a"
+migrations_dir = "migrations"
+
+# Staging: a separate database. Select it with `--env staging`.
+[env.staging]
+name = "almanac-staging"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "almanac-staging"
+database_id = "64dcd0c7-3c5a-4ca6-ae27-c8edba3a8a70"
+migrations_dir = "migrations"

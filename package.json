@@ -1,0 +1,12 @@
+{
+  "name": "excelsior-almanac",
+  "private": true,
+  "description": "ALMANAC: martial arts events and academies database feeding the Excelsior app",
+  "scripts": {
+    "verify:schema:local": "bash scripts/verify-schema.sh local",
+    "verify:schema:staging": "bash scripts/verify-schema.sh staging"
+  },
+  "devDependencies": {
+    "wrangler": "4.131.2"
+  }
+}
