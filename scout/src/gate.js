@@ -27,6 +27,14 @@ const REQUIRED_FIELDS = [
   { field: 'reviewed_on', present: (s) => truthy(s.reviewed_on), reason: 'no review date has been recorded (field 10)' },
 ];
 
+// Exported so a test can compare this list against the database's own CHECK
+// constraint. Two lists that must agree, with nothing checking them, is the
+// exact shape of the bugs the founder found by hand.
+export const GATE_REQUIRED_FIELDS = REQUIRED_FIELDS.map((f) => f.field);
+
+// Fields the gate enforces with their own rule rather than a presence check.
+export const GATE_CONDITIONAL_FIELDS = ['verdict_conditions'];
+
 function truthy(value) {
   return value !== null && value !== undefined && value !== '';
 }
