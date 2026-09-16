@@ -360,6 +360,47 @@ Does not cover:
   page" link is simply dropped as "not an event detail page path",
   correctly but without being surfaced as a page still to crawl).
 
+## The Phase 2 ground-truth count: a worked case for the approval queue (2026-09-16)
+
+Building the organizer registry and the twelve-month event count surfaced four
+real defect shapes, none of them from code, all of them from trusting a single
+source. They are recorded here as the worked case for what the approval
+console's own reviewer needs to be able to see, because the same shapes will
+recur in every future crawl.
+
+1. **A moved date, old listing never retracted.** Submission Challenge Branson
+   moved from June 6 to August 29, 2026; a Facebook event ID and a
+   bjjcompfinder slug still carry the June date. Submission Challenge
+   Arkansas moved from July 11 to August 22, 2026, same pattern. Nothing
+   marks the old page as wrong; it just sits there, indexed, alongside the
+   right one. A crawl that trusts the first date it finds ships a wrong one.
+2. **Three independent-source date conflicts, genuinely unresolved by
+   reading further.** IBJJF Kansas City 2025 (Nov 9 vs. a since-pruned page),
+   AGF's 2025 US Open Tulsa (Dec 13 vs. Dec 20), and AGF's 2026 Oklahoma City
+   Open (Sept 12-13 vs. Sept 19-20, which decides whether the event falls
+   inside or outside a stated twelve-month window). No amount of additional
+   reading resolved these; two sources simply disagree. This is exactly what
+   `date_conflicted` (ARCHITECTURE.md Section 6) exists to surface rather
+   than paper over with a guess.
+3. **A city label that is wrong by one governmental boundary.** A "Grappling
+   Industries Kansas City" listing is, on its own venue address, in Olathe,
+   Kansas... a real place, a real event, the wrong state for anyone
+   filtering by Missouri. A city-name match is not a location; only a
+   geocoded coordinate against the venue address catches this.
+4. **An aggregator's own machine-readable field disagreeing with its own
+   human-readable field, five separate times.** bjjcompfinder's URL slug
+   (built from one date) and its displayed event date (a possibly later
+   correction) disagreed on five different tournament pages during this
+   count. A parser that trusts the slug and a parser that trusts the
+   displayed text will produce two different databases from the same page.
+
+**What this proves about the review queue, not just about these four
+events:** a reviewer needs to see the conflicting values and their sources
+side by side, never a single resolved-looking date with the disagreement
+silently dropped by whichever field the parser happened to prefer. The same
+law as the hand-copy law above, one level up: where two representations of
+one fact exist, the system must show both, not silently pick one.
+
 ## When a gap becomes a test
 
 A gap moves onto this list once it is known. It becomes a test when the slice
