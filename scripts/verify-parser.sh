@@ -79,11 +79,12 @@ function sqlStr(v) {
 }
 
 const NUMERIC_COLS = ['gi', 'nogi', 'kids', 'source_tier'];
-const COLS = [
-  'id', 'event_type', 'name', 'organizer_name', 'start_date', 'end_date', 'venue_name', 'address',
-  'city', 'state', 'country', 'registration_url', 'registration_deadline', 'gi', 'nogi', 'kids',
-  'source_url', 'source_host', 'source_event_ref', 'source_tier', 'dedupe_key',
-];
+// The insert is driven by the KEYS THE PARSER ACTUALLY RETURNS, never by a
+// hardcoded list. A hardcoded list silently drops anything extra, which makes
+// "every row lands as draft" a claim that cannot fail: a parser setting
+// status = 'approved' would sail through unnoticed. Driven by the row's own
+// keys, such a parser is refused by the database's insert trigger, loudly.
+const colsOf = (row) => Object.keys(row);
 
 // Every fixture is hand-written synthetic HTML: invented event names, dates,
 // venues and ids ("Fixture ...", "Testburg"). None is a real Smoothcomp page.
@@ -110,8 +111,8 @@ for (const c of CASES) {
       const row = toDraftRow(result.event);
       if (!firstRow) firstRow = row;
       okNames.push(row.name);
-      const vals = COLS.map((col) => (NUMERIC_COLS.includes(col) ? String(row[col]) : sqlStr(row[col])));
-      inserts.push('INSERT INTO events (' + COLS.join(', ') + ') VALUES (' + vals.join(', ') + ');');
+      const vals = colsOf(row).map((col) => (NUMERIC_COLS.includes(col) ? String(row[col]) : sqlStr(row[col])));
+      inserts.push('INSERT INTO events (' + colsOf(row).join(', ') + ') VALUES (' + vals.join(', ') + ');');
     }
   } else {
     report(result.ok === false, c.file + ': parses as ok: false (rejected, not a half-built row)');
@@ -133,11 +134,12 @@ writeFileSync('$TMP/draft-rows.sql', inserts.join('\n') + '\n');
 // A second attempt at the SAME candidate (a fresh id, the identical
 // dedupe_key), to prove the database's own unique constraint refuses a
 // repeat, not just this script's own bookkeeping.
-const dupVals = COLS.map((col) => {
+const dupRow = firstRow;
+const dupVals = colsOf(dupRow).map((col) => {
   if (col === 'id') return sqlStr('duplicate-attempt-id');
-  return NUMERIC_COLS.includes(col) ? String(firstRow[col]) : sqlStr(firstRow[col]);
+  return NUMERIC_COLS.includes(col) ? String(dupRow[col]) : sqlStr(dupRow[col]);
 });
-writeFileSync('$TMP/duplicate-row.sql', 'INSERT INTO events (' + COLS.join(', ') + ') VALUES (' + dupVals.join(', ') + ');\n');
+writeFileSync('$TMP/duplicate-row.sql', 'INSERT INTO events (' + colsOf(dupRow).join(', ') + ') VALUES (' + dupVals.join(', ') + ');\n');
 writeFileSync('$TMP/summary.json', JSON.stringify({ okCount: okNames.length, rejectCount: rejectFiles.length, okNames }));
 NODE
 

@@ -194,3 +194,17 @@ test('SOURCE_HOST is exactly smoothcomp.com, and only that host', () => {
 test('the fetch counter was never touched by any of the above (no network reachable from this module)', () => {
   assert.equal(fetchCalls, 0);
 });
+
+// A parser must never decide approval. If a future edit adds any of these
+// keys, this fails here rather than being silently dropped by an insert.
+test('toDraftRow never carries status or approval fields', () => {
+  const url = 'https://smoothcomp.com/en/event/900001/fixture-open-2027';
+  const parsed = parseEventPage(fixture('complete-event.html'), { url });
+  assert.equal(parsed.ok, true);
+  const row = toDraftRow(parsed.event);
+  for (const forbidden of ['status', 'approved_by', 'approved_at', 'approval_rule', 'published_at']) {
+    assert.ok(!(forbidden in row), `toDraftRow must not set ${forbidden}; the database owns it`);
+  }
+  assert.equal(row.source_tier, 1);
+  assert.equal(row.source_host, 'smoothcomp.com');
+});

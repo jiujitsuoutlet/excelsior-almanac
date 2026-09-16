@@ -23,13 +23,13 @@ fail gets rewritten, not reported.
 
 ## What each battery covers, and what it does not
 
-### `npm run test:unit` (101 tests: 18 console, 83 scout)
+### `npm run test:unit` (102 tests: 18 console, 84 scout)
 
 This command now runs both `console/test/` and `scout/test/`. The console
 half covers: the approval gate, chips, blockers, the count headline,
 duplicate resolution, input validation, Access token verification against a
 real RSA key, the dev identity guard, and database-error wording. See the
-scout section below for the other 83 (67 skeleton, 16 the smoothcomp.com
+scout section below for the other 84 (67 skeleton, 17 the smoothcomp.com
 Tier 1 parser).
 
 Does not cover:
@@ -96,7 +96,7 @@ Does not cover:
 - **Accessibility**: no screen reader, keyboard-trap or contrast testing.
 - **Rendering a large queue.**
 
-### Scout skeleton: `npm run test:unit` (67 of the 101 tests) and `bash scripts/verify-scout.sh` (12 checks)
+### Scout skeleton: `npm run test:unit` (67 of the 102 tests) and `bash scripts/verify-scout.sh` (12 checks)
 
 The scout skeleton (`scout/`) has no Tier 1 parsers and no real fetch yet.
 Only four things exist: a robots.txt parser and matcher (`robots.js`), a
@@ -199,7 +199,7 @@ Does not cover:
   configuration sets it anywhere, and turning it on for real is the
   founder-gated step this skeleton explicitly does not take.
 
-### Tier 1 parser: smoothcomp.com (`npm run test:unit`, 16 of the 101 tests) and `bash scripts/verify-parser.sh` (18 checks)
+### Tier 1 parser: smoothcomp.com (`npm run test:unit`, 17 of the 102 tests) and `bash scripts/verify-parser.sh` (18 checks)
 
 This is the first Tier 1 parser (ARCHITECTURE.md section 5): a pure,
 deterministic parser for smoothcomp.com only (`scout/src/parsers/
@@ -210,7 +210,7 @@ venues and ids ("Fixture Open", "Testburg"). None of it is a saved real
 Smoothcomp page, and **nothing here proves the parser works against the
 live site. That is the founder's one hand-run, later.**
 
-Covers, in `scout/test/parsers/` (16 tests, pure functions, no database and
+Covers, in `scout/test/parsers/` (17 tests, pure functions, no database and
 no network):
 - A complete event page: every field extracted correctly from a JSON-LD
   block plus the event-meta attributes, including gi/nogi/kids flags, the
@@ -244,6 +244,9 @@ no network):
   throws on `null`, `undefined` or empty HTML.
 - The parser never touches `fetch`: a patched, counting global stays at
   zero across every fixture above, including the malformed one.
+- `toDraftRow` carries no `status`, `approved_by`, `approved_at`,
+  `approval_rule` or `published_at` key at all. A parser must never decide
+  approval; the database owns that column.
 
 Covers, in `bash scripts/verify-parser.sh` (18 checks, against a throwaway
 local D1 with the real `events` schema from `migrations/`):
@@ -253,7 +256,16 @@ local D1 with the real `events` schema from `migrations/`):
   CHECK or trigger refusal.
 - Every accepted row lands as `status = 'draft'`, `source_tier = 1`,
   `source_host = 'smoothcomp.com'`; nothing in this battery is ever
-  approved, or in any status but draft.
+  approved, or in any status but draft. The insert is built from the keys
+  the parser ACTUALLY returns, never from a hardcoded column list, so a
+  parser that tried to set its own status is sent to the database as
+  written and refused there, loudly. (GAP CLOSED, 2026-09-16: the first
+  version of this battery built its inserts from a fixed `COLS` constant,
+  which silently dropped any extra key. A parser hardcoded to
+  `status: 'approved'` still scored 18 of 18. Proven by breaking it: with
+  the same injection the battery now reports 13 passed, 5 failed, and the
+  database's own words are "new rows start as draft with no approval:
+  SQLITE_CONSTRAINT_TRIGGER".)
 - The row count in `events` after insertion is exactly the parser's
   accepted count; the rejected fixtures were never sent to the database at
   all, let alone refused by it.
