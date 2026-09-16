@@ -153,7 +153,9 @@ Does not cover:
 - **The runner honoring `scheduledAt`.** `queue.js` computes a spaced
   schedule for each planned page, but `run.js` does not wait for it; it
   walks the plan immediately. This does not matter while the fetcher always
-  throws, but it will matter the day a real fetcher is wired in.
+  throws. **FOUNDER FLAG: the day a real fetcher is wired in, this stops
+  being harmless and must be fixed in that same pull request, before it
+  runs.** Tracked as EXC-147.
 - **Limiter state across runs.** Nothing persists `limiterState` between one
   scheduled run and the next, so the "one request per host per 10 seconds"
   guarantee is enforced only within a single run, not across the boundary
@@ -165,11 +167,13 @@ Does not cover:
   first reason it finds, in a fixed order; a row missing three fields and
   requiring a login is only ever reported for the first thing wrong with it,
   never the full list.
-- **Drift between `gate.js` and the database's own CHECK constraint on
-  `sources.active`** (`migrations/20260915000100_core_schema.sql`). The two
-  are meant to agree field for field, but nothing tests that they actually
-  do; a future migration that changes the ten fields could silently
-  desynchronize them.
+- ~~Drift between `gate.js` and the database's CHECK constraint~~ **CLOSED
+  2026-09-16** (founder ruling: this gap is the exact shape of both bugs he
+  found by hand, two rules that must agree with nothing checking).
+  `scout/test/gate-drift.test.js` reads the constraint out of the migration
+  and fails when the two lists diverge in either direction. It carries its
+  own proof that it can fail, and was run with a field removed from the gate
+  to watch it fail for real.
 - **Real-world robots.txt files.** Every fixture in `robots.test.js` is
   hand-written and small; nothing here has been run against an actual
   site's robots.txt.

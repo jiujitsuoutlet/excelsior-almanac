@@ -22,6 +22,11 @@ The Excelsior MAD (`MAD.md` in `jiujitsuoutlet/excelsior-master`) is canonical. 
 
 The bootstrap commit (`.gitignore`, `README.md`) is the only commit ever made directly to `main`. Every change after it, this document included, rides a branch, a pull request, the founder's word, and a merge. There is no exception for documentation, build-log entries, or one-line fixes. Authored text in this repository uses ellipses for pacing, never em-dashes.
 
+**A schema migration rides its own pull request** (founder ruling, 2026-09-16).
+Never inside a feature build, however additive and however honest the reason.
+A migration changes what the database will accept for everyone; it gets read
+on its own, not as a file buried in a branch that does something else.
+
 ## 4. Platform
 
 - **Account.** ALMANAC runs in Cloudflare account `bbe6d5f6cc43632eafdd5ef854f48a25`, the founder's own account. This is not the Yoga for BJJ funnel account, and the two are never to be confused.
