@@ -122,6 +122,40 @@ function extractAllHrefs(html) {
   return hrefs;
 }
 
+// ---- one place that decides whether a smoothcomp.com URL may be touched ----
+
+// Both the listing parser (deciding which links to keep) and the fetcher
+// (deciding whether a request may leave at all) call this. There is exactly
+// one exclusion list in the repository; a second copy is how a rule quietly
+// stops being enforced while the tests still pass.
+export function classifyUrl(rawUrl, { base = null } = {}) {
+  let resolved;
+  try {
+    resolved = new URL(rawUrl, base ?? undefined);
+  } catch {
+    return { ok: false, reason: 'not a resolvable URL' };
+  }
+  if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') {
+    return { ok: false, reason: `not an http(s) link (${resolved.protocol})`, url: resolved };
+  }
+  if (resolved.hostname.toLowerCase() !== SOURCE_HOST) {
+    return { ok: false, reason: `not on ${SOURCE_HOST}`, url: resolved };
+  }
+  const excluded = EXCLUDED_PATH_RULES.find((rule) => rule.test(resolved.pathname));
+  if (excluded) return { ok: false, reason: excluded.reason, url: resolved };
+  if (!EVENT_DETAIL_PATH.test(resolved.pathname)) {
+    return { ok: false, reason: 'not an event detail page path', url: resolved };
+  }
+  return { ok: true, url: resolved };
+}
+
+// The shape `fetcher.js` wants: a path in, an { ok, reason } out. Kept
+// deliberately thin so the fetcher inherits the rules above rather than
+// restating them.
+export function pathAllowed(path) {
+  return classifyUrl(`https://${SOURCE_HOST}${path}`);
+}
+
 // ---- listing pages ----
 
 // Returns { eventUrls, dropped }. `eventUrls` are absolute, deduplicated,
@@ -136,35 +170,13 @@ export function parseListingPage(html, { url } = {}) {
   const dropped = [];
 
   for (const raw of extractAllHrefs(safeHtml)) {
-    let resolved;
-    try {
-      resolved = new URL(raw, url);
-    } catch {
-      dropped.push({ url: raw, reason: 'not a resolvable URL' });
+    const verdict = classifyUrl(raw, { base: url });
+    if (!verdict.ok) {
+      dropped.push({ url: verdict.url ? verdict.url.toString() : raw, reason: verdict.reason });
       continue;
     }
 
-    if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') {
-      dropped.push({ url: raw, reason: `not an http(s) link (${resolved.protocol})` });
-      continue;
-    }
-    if (resolved.hostname.toLowerCase() !== SOURCE_HOST) {
-      dropped.push({ url: resolved.toString(), reason: `not on ${SOURCE_HOST}` });
-      continue;
-    }
-
-    const path = resolved.pathname;
-    const excluded = EXCLUDED_PATH_RULES.find((rule) => rule.test(path));
-    if (excluded) {
-      dropped.push({ url: resolved.toString(), reason: excluded.reason });
-      continue;
-    }
-    if (!EVENT_DETAIL_PATH.test(path)) {
-      dropped.push({ url: resolved.toString(), reason: 'not an event detail page path' });
-      continue;
-    }
-
-    const href = resolved.toString();
+    const href = verdict.url.toString();
     if (!seen.has(href)) {
       seen.add(href);
       eventUrls.push(href);

@@ -7,7 +7,11 @@
     "verify:schema:staging": "bash scripts/verify-schema.sh staging",
     "test:unit": "node --test console/test/ scout/test/",
     "verify:console": "bash scripts/verify-console.sh",
-    "console:staging": "bash scripts/console-staging.sh"
+    "console:staging": "bash scripts/console-staging.sh",
+    "verify:scout": "bash scripts/verify-scout.sh",
+    "verify:parser": "bash scripts/verify-parser.sh",
+    "verify:fetcher": "bash scripts/verify-fetcher.sh",
+    "fetch:one": "bash scripts/fetch-one.sh"
   },
   "devDependencies": {
     "wrangler": "4.131.2",

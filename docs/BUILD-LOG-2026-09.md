@@ -124,3 +124,35 @@ not fail.
   `evidence/console/`.
 - Production runbook, run by the founder: `docs/D1-RUNBOOK.md`.
 - What none of them cover: `docs/VERIFICATION.md`.
+
+## 2026-09-16 ... the fetcher, and the crawl delay it is bound by
+
+The first code in this lane that can reach another company's server.
+
+`scout/src/fetcher.js` holds the rules the terms review was granted under,
+and enforces them before a request leaves: https only, one named host, the
+parser's own excluded-path list, redirects reported but never followed, a
+two megabyte body cap that drops the connection mid-stream, a timeout, the
+pinned user agent, and conditional requests so a repeat visit costs the host
+a 304 instead of a page.
+
+EXC-147 is closed in the same pull request, because it had to be: the plan
+has always worked out when each page may be fetched, and until now nothing
+waited for it. `run.js` now waits, and then CHECKS the wait ... a sleep that
+comes back early is refused, loudly, and the whole run stops.
+
+`scripts/fetch-one.sh` is the founder's hand-run command: one page, on his
+word, printing exactly what it will request and what Smoothcomp's access log
+will show, then asking him to type yes. It writes nothing to the events
+table. There is no schedule anywhere in the repository.
+
+New law recorded in docs/VERIFICATION.md: **wherever a hand-written list
+mirrors what the system actually does, that is where the next false pass
+hides.** Three false passes in this build had that exact shape. The fetcher
+answers to it: there is now one `classifyUrl` shared by the listing parser
+and the fetcher, and `terms-drift.test.js` reads the founder's own review
+file and makes the code answer to it.
+
+One real hole was found by a test while writing this: `fetchRobots` took its
+allowed host from its own argument, so the check that keeps us on one host
+was being satisfied by the very value it was meant to check.

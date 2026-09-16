@@ -159,3 +159,71 @@ test('a run with no sources at all still opens and closes cleanly', async () => 
   assert.equal(result.status, 'succeeded');
   assert.equal(store.closed[0].hostsSkipped, 0);
 });
+
+// ---- EXC-147: the plan's scheduled times are waited for, and checked ----
+
+// A controllable clock: it moves only when the run sleeps, so a ten-second
+// crawl delay is provable in a test that takes no time at all.
+function fakeClock(startMs = Date.parse('2026-09-16T12:00:00Z')) {
+  let t = startMs;
+  const slept = [];
+  return {
+    now: () => t,
+    slept,
+    sleep: async (ms) => { slept.push(ms); t += ms; },
+    advance: (ms) => { t += ms; },
+  };
+}
+
+const TWO_PAGE_HOST = { ...ALLOWED_HOST, page_types: '["events", "events"]' };
+
+test('the runner waits for each planned time: two pages on one host are spaced ten seconds', async () => {
+  const store = fakeStore([TWO_PAGE_HOST]);
+  const clock = fakeClock();
+  const fetchedAt = [];
+  const result = await runScoutRun({
+    ...store,
+    now: clock.now,
+    sleep: clock.sleep,
+    fetchImpl: async () => { fetchedAt.push(clock.now()); },
+  });
+
+  assert.equal(result.pagesFetched, 2);
+  assert.equal(clock.slept.length, 1, 'the first page is due immediately; only the second waits');
+  assert.equal(clock.slept[0], 10_000, 'the wait is the full ten-second crawl delay, in milliseconds');
+  assert.equal(fetchedAt[1] - fetchedAt[0], 10_000, 'and the two requests really are ten seconds apart');
+});
+
+test('a longer Crawl-delay is waited out in full, not shortened to ten seconds', async () => {
+  const store = fakeStore([{ ...TWO_PAGE_HOST, robots_crawl_delay_seconds: 30 }]);
+  const clock = fakeClock();
+  await runScoutRun({ ...store, now: clock.now, sleep: clock.sleep, fetchImpl: async () => {} });
+  assert.deepEqual(clock.slept, [30_000]);
+});
+
+test('a sleep that returns early is REFUSED, not trusted: the run aborts and fetches nothing more', async () => {
+  const store = fakeStore([TWO_PAGE_HOST]);
+  const clock = fakeClock();
+  let fetches = 0;
+  await assert.rejects(
+    runScoutRun({
+      ...store,
+      now: clock.now,
+      // A broken wait: it reports back instantly without moving the clock,
+      // exactly what a bad injection or a jumped clock would look like.
+      sleep: async () => {},
+      fetchImpl: async () => { fetches += 1; },
+    }),
+    /refusing to fetch allowed\.example\.com 10000ms before its scheduled time/,
+  );
+  assert.equal(fetches, 1, 'the first page went out on time; the second was refused, never sent');
+  assert.equal(store.closed.length, 1, 'the crawl_runs row is still closed, never left running');
+  assert.equal(store.closed[0].status, 'failed');
+});
+
+test('the real default sleep actually sleeps (it is not a no-op)', async () => {
+  const { defaultSleep } = await import('../src/run.js');
+  const before = Date.now();
+  await defaultSleep(60);
+  assert.ok(Date.now() - before >= 55, 'defaultSleep must really wait; it is what enforces the crawl delay in production');
+});

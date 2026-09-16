@@ -8,3 +8,4 @@ node_modules/
 .DS_Store
 .wrangler/
 .dev.vars
+.verify-tmp/
