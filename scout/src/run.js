@@ -17,6 +17,11 @@ import { buildPlan } from './queue.js';
 
 export const DEFAULT_COMPONENT = 'tier1_scout';
 
+// Real waiting. Injected in tests so a ten-second crawl delay can be proven
+// without a test that takes ten seconds; the guard below the wait is what
+// makes an injected sleep unable to lie about it.
+export const defaultSleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
 export async function runScoutRun({
   component = DEFAULT_COMPONENT,
   region = null,
@@ -26,6 +31,7 @@ export async function runScoutRun({
   openRun,
   closeRun,
   pageCapPerHost,
+  sleep = defaultSleep,
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new Error('runScoutRun requires an injected fetchImpl; it never defaults to a real fetch');
   if (typeof loadSources !== 'function') throw new Error('runScoutRun requires an injected loadSources function');
@@ -40,20 +46,49 @@ export async function runScoutRun({
 
   let pagesFetched = 0;
   let errors = 0;
-  for (const entry of plan) {
-    try {
-      // eslint-disable-next-line no-await-in-loop -- one host at a time, on purpose (the limiter already spaced `scheduledAt`)
-      await fetchImpl(entry);
-      pagesFetched += 1;
-    } catch {
-      errors += 1;
+  let aborted = null;
+  try {
+    for (const entry of plan) {
+      // EXC-147. `queue.js` works out the earliest moment each page may be
+      // requested; until this loop actually WAITS for it, that number is
+      // decoration. The ten-second spacing is the condition this source was
+      // reviewed under, so it is enforced here, in the one place a request
+      // can be made.
+      const waitMs = entry.scheduledAt - now();
+      // eslint-disable-next-line no-await-in-loop -- waiting is the point
+      if (waitMs > 0) await sleep(waitMs, entry);
+
+      // And the wait is CHECKED, not trusted. A sleep that returns early (a
+      // broken injection, a clock that jumped) would otherwise fetch early
+      // and silently break the crawl law while every test still passed.
+      const early = entry.scheduledAt - now();
+      if (early > 0) {
+        throw new Error(
+          `refusing to fetch ${entry.host} ${early}ms before its scheduled time; ` +
+          'the crawl delay is the condition this source was reviewed under',
+        );
+      }
+
+      try {
+        // eslint-disable-next-line no-await-in-loop -- one host at a time, on purpose
+        await fetchImpl(entry);
+        pagesFetched += 1;
+      } catch {
+        errors += 1;
+      }
     }
+  } catch (err) {
+    // A rule refusal, not a page failure: the run ends here and says so. The
+    // crawl_runs row is still closed below, so nothing is left "running".
+    aborted = err;
+    errors += 1;
   }
 
   const status = errors > 0 ? 'failed' : 'succeeded';
   const finishedAt = now();
   await closeRun({ runId, status, finishedAt, pagesFetched, errors, hostsSkipped: skipped.length });
 
+  if (aborted) throw aborted;
   return { runId, status, pagesFetched, errors, skipped, plan };
 }
 

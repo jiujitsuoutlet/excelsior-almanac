@@ -21,15 +21,46 @@ Related laws already in force here: a refusal is the proof (a rule is proven
 by watching it refuse, not by an admin succeeding), and a metric that cannot
 fail gets rewritten, not reported.
 
+## The hand-copy law (founder, 2026-09-16)
+
+**Wherever a hand-written list mirrors what the system actually does, that is
+where the next false pass hides.**
+
+Three times in this build a test was checking an assumption rather than the
+code, and every one had the same shape ... something typed by hand standing
+in for something the system does:
+
+1. The scout gate's ten-field list was a hand copy of the database's own
+   CHECK constraint. Fixed by reading the constraint out of the migration
+   (`scout/test/gate-drift.test.js`).
+2. That drift test's own identifier pattern was hand-written as `[a-z_]+`,
+   which could not see `robots_sha256`, so it reported a disagreement that
+   did not exist.
+3. The parser battery built its database inserts from a hand-typed column
+   list, so a parser that approved its own rows still scored 18 of 18.
+
+The rule that follows: when two places describe one rule, one of them must
+READ the other. Where that is impossible (the terms review records prose a
+machine cannot turn into a URL), say so in the gap list and prove the
+opposite guarantee instead ... a narrow allow-list refuses everything nobody
+thought to name.
+
+Live examples of the law in force: `scout/test/gate-drift.test.js` reads the
+migration, `scout/test/terms-drift.test.js` reads the founder's own terms
+review file, `scripts/verify-parser.sh` builds inserts from the parser's
+returned keys, and `smoothcomp.js` exports one `classifyUrl` that both the
+listing parser and the fetcher call, so there is one exclusion list rather
+than two.
+
 ## What each battery covers, and what it does not
 
-### `npm run test:unit` (102 tests: 18 console, 84 scout)
+### `npm run test:unit` (127 tests: 18 console, 109 scout)
 
 This command now runs both `console/test/` and `scout/test/`. The console
 half covers: the approval gate, chips, blockers, the count headline,
 duplicate resolution, input validation, Access token verification against a
 real RSA key, the dev identity guard, and database-error wording. See the
-scout section below for the other 84 (67 skeleton, 17 the smoothcomp.com
+scout section below for the other 109 (71 skeleton, 17 the smoothcomp.com
 Tier 1 parser).
 
 Does not cover:
@@ -96,17 +127,17 @@ Does not cover:
 - **Accessibility**: no screen reader, keyboard-trap or contrast testing.
 - **Rendering a large queue.**
 
-### Scout skeleton: `npm run test:unit` (67 of the 102 tests) and `bash scripts/verify-scout.sh` (12 checks)
+### Scout skeleton: `npm run test:unit` (71 of the 127 tests) and `bash scripts/verify-scout.sh` (12 checks)
 
-The scout skeleton (`scout/`) has no Tier 1 parsers and no real fetch yet.
-Only four things exist: a robots.txt parser and matcher (`robots.js`), a
-per-host rate limiter (`limiter.js`), the terms-review gate (`gate.js`), a
-plan builder (`queue.js`), and a runner (`run.js`) whose fetch function is
-injected and, in this pull request, always throws. The batteries below are
-scoped to exactly that: proving the gate refuses correctly and that nothing
-in the skeleton can reach a real network fetch.
+The skeleton is the machinery around a fetch, not the fetch itself: a
+robots.txt parser and matcher (`robots.js`), a per-host rate limiter
+(`limiter.js`), the terms-review gate (`gate.js`), a plan builder
+(`queue.js`), and a runner (`run.js`). The runner's fetch function is always
+injected and never defaults; the Worker in `index.js` still wires up
+`disabledFetch`, which throws, and no Cron Trigger calls it. The real
+fetcher lives in `fetcher.js` and has its own section below.
 
-Covers, in `scout/test/` (67 tests, pure functions, no database and no
+Covers, in `scout/test/` (71 tests, pure functions, no database and no
 network):
 - **identity.js:** the exact ratified user agent string, and that the
   robots-matching token is a case-insensitive prefix of it.
@@ -199,7 +230,7 @@ Does not cover:
   configuration sets it anywhere, and turning it on for real is the
   founder-gated step this skeleton explicitly does not take.
 
-### Tier 1 parser: smoothcomp.com (`npm run test:unit`, 17 of the 102 tests) and `bash scripts/verify-parser.sh` (18 checks)
+### Tier 1 parser: smoothcomp.com (`npm run test:unit`, 17 of the 127 tests) and `bash scripts/verify-parser.sh` (18 checks)
 
 This is the first Tier 1 parser (ARCHITECTURE.md section 5): a pure,
 deterministic parser for smoothcomp.com only (`scout/src/parsers/
@@ -335,3 +366,115 @@ A gap moves onto this list once it is known. It becomes a test when the slice
 that needs it arrives (for example, real chips arrive with the Tier 1 scout),
 or immediately when a bug is found in it, with the founder's own failing case
 as the first test.
+
+### The fetcher and the crawl delay: `npm run test:unit` (32 of the 127 tests) and `bash scripts/verify-fetcher.sh` (20 checks)
+
+This is the first code in the lane that can open a socket to somebody else's
+server. `scout/src/fetcher.js` holds every rule the founder's terms review
+was granted under, enforced before the request leaves; `scout/src/run.js`
+now waits out the crawl delay the plan worked out (EXC-147) and refuses to
+fetch early if that wait comes back short.
+
+Covers, in `scout/test/fetcher.test.js` (17 tests, injected fetch, no socket):
+- The pinned user agent is sent, the method is GET, and redirects are
+  requested in `manual` mode so they are never followed.
+- Conditional requests: an ETag or Last-Modified we already hold is sent, a
+  304 comes back with no body, and a first visit sends neither header.
+- Eight refusals that all happen BEFORE the request leaves, proven by a
+  fetcher that throws if it is ever called: plain http, a different host,
+  brackets, registrations, athlete profiles, the order flow, a listing page,
+  and a string that is not a URL.
+- No allowed host means nothing is fetchable; `fetchOnce` refuses to default
+  to the global fetch at all.
+- A redirect comes back as a fact with its destination, unfollowed.
+- A body past the cap throws and cancels the stream; a body under it comes
+  back whole with its byte count.
+- Non-2xx answers (403, 404, 429, 500, 503) are returned as facts with no
+  body, not thrown; a network failure names the URL and is distinguishable
+  from one of our own refusals; a hung server is aborted on the timeout.
+- robots.txt is fetched at its own path with the same user agent, and is
+  still refused on a host the caller did not allow (a real hole found by
+  this test: the function used to take its allowed host from its own
+  argument, so the one check that mattered was satisfied by the value it was
+  meant to check).
+- `sha256Hex` against the known SHA-256 of "abc".
+
+Covers, in `scout/test/run.test.js` (4 of its 11 tests, EXC-147):
+- Two pages on one host really are spaced ten seconds, measured on a clock
+  that only moves when the run sleeps.
+- A longer Crawl-delay is waited out in full, not shortened.
+- A sleep that returns early is REFUSED: the run aborts, the second page is
+  never requested, and the `crawl_runs` row is still closed as failed.
+- `defaultSleep` actually sleeps, so the production path is not a no-op.
+
+Covers, in `scout/test/terms-drift.test.js` (4 tests, the hand-copy law):
+- The founder's terms review FILE is read, and every path-shaped entry in
+  its `excluded_paths` and `robots_disallowed` lists is proven to be refused
+  by the code. If someone adds a path to the review and not to the code,
+  this fails.
+- The allow-list is narrow: fifteen shapes that are not event detail pages
+  are each refused, and the two that are allowed pass, so the test can fail
+  in both directions.
+
+Covers, in `bash scripts/verify-fetcher.sh` (20 checks, against a REAL local
+HTTPS server with a throwaway certificate):
+- The exact user agent arrives at a real server, over a real socket.
+- A real 304 round trip, with the server confirming it received the
+  If-None-Match header.
+- A real redirect is not followed: the server never sees the trap URL.
+- A 5MB body against a 100KB cap: the refusal fires AND the server observes
+  the connection actually drop mid-body.
+- Plain http is refused with no request reaching the server.
+- The ten-second spacing measured at the SERVER, not by the client: two
+  requests, 10,005ms apart, in a run that really took that long.
+- The plan printer makes no request at all.
+
+Proven able to fail, by breaking the code on purpose (2026-09-16):
+- Wait removed from the runner: 16 passed, 4 failed, with the run refusing
+  in its own words ("refusing to fetch localhost 9997ms before its scheduled
+  time").
+- Redirects followed: 17 passed, 3 failed, including "the redirect target
+  was NEVER requested".
+- The byte cap no longer dropping the connection: 19 passed, 1 failed, on
+  the server-side observation, which is the only check that could catch it.
+- The user agent's contact address changed: 19 passed, 1 failed.
+
+Does not cover:
+- **smoothcomp.com.** Nothing in this pull request has contacted them. Every
+  check above runs against a local server that answers however the test told
+  it to. Whether Smoothcomp returns 200 to this user agent, whether their
+  robots.txt still hashes to what the review recorded, whether Cloudflare or
+  a bot filter sits in front of it, and whether the page carries the JSON-LD
+  the parser walks are all unknown until `scripts/fetch-one.sh` is run by
+  hand.
+- **The battery's user agent equality check is self-referential.** It
+  compares what the server received to the same constant the fetcher sent,
+  so it proves the header survives the plumbing, not that the string is
+  right. The string itself is pinned as a literal in
+  `scout/test/identity.test.js`; that is the check that would catch a
+  changed user agent.
+- **Retries, backoff and 429 handling.** A 429 is returned as a fact and
+  nothing acts on it. There is no retry anywhere, which is safe but means a
+  transient failure simply loses that page.
+- **`Retry-After`.** Never read.
+- **Conditional-request storage.** The fetcher sends an ETag when the caller
+  hands it one, but nothing persists ETags between runs yet, so in practice
+  every visit is currently a cold one.
+- **The crawl delay ACROSS runs.** `queue.js` accepts carried-forward
+  limiter state, but nothing stores it, so two runs started a second apart
+  would each think the host is untouched.
+- **Redirect handling beyond refusing to follow.** A moved page is simply
+  lost; no one is told.
+- **Compression, character sets and non-UTF-8 pages.** The body is decoded
+  as UTF-8 unconditionally.
+- **IPv6, proxies, TLS failures against a real certificate authority, and
+  DNS failure modes.** The local server uses a certificate generated for the
+  test.
+- **Cloudflare Workers.** Every one of these runs under Node on a Mac. The
+  scout Worker is still wired to `disabledFetch`, and nothing has run this
+  code in the Workers runtime.
+- **Concurrency.** One request at a time, one host, one process. Two runs at
+  once would not see each other's spacing.
+- **`scripts/fetch-one.sh` end to end.** Its plan mode is exercised by the
+  battery; the `--go` path has never been run, because running it is a
+  founder decision and it touches a real outside host.
