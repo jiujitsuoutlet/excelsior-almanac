@@ -192,7 +192,30 @@ Six organizers confirmed real and operating in the nine-state footprint, found d
 
 None of these are active crawl targets. Each enters the crawl only after its own terms review, per Section 9's ten-field gate, same as every other host.
 
-## 15. Build sequence and gates
+## 15. The twelve-month ground-truth count (2025-09-16 to 2026-09-16)
+
+| State | Confirmed | Depth |
+|---|---|---|
+| Missouri | 31 | Full (organizer, division, entry type) |
+| Illinois | 30 | List only |
+| Tennessee | 32 | List only |
+| Oklahoma | 14 | Full |
+| Kentucky | 13 | List only |
+| Iowa | 13 | List only |
+| Arkansas | 6 (+2 cancelled) | Full |
+| Nebraska | 9 | List only |
+| Kansas | 3 | Full |
+| **Total** | **151** | |
+
+The prior estimate for this count was 180-220. **The shortfall is attributable only to the five list-only states** (Illinois, Iowa, Nebraska, Tennessee, Kentucky), where the per-agent search-API budget ran out partway through and the remainder of the research fell back to slower, narrower crawling of aggregator sites. **The four full-depth states (Missouri, Oklahoma, Arkansas, Kansas) are not budget-limited**... each ran its search budget to completion, cross-checked multiple independent sources, and caught real errors along the way (a mislabeled Missouri/Kansas boundary in both directions, two moved dates, three genuine cross-source date conflicts). Their numbers, Kansas's included, stand as a real count, not a partial one.
+
+**Kansas is genuinely thin, not under-researched.** Every organizer already in the registry was checked to completion; the low count (3) reflects that most events branded "Kansas City" in this region are actually across the state line in Missouri (Hy-Vee Arena, KCI Expo Center, Apex Sports Hub)... confirmed this direction the same way the Missouri count caught a "Kansas City" listing that was really in Olathe, KS. The mislabeling runs both ways across that one metro boundary, and both directions are now checked.
+
+**Two single-organizer gaps left open, not structural (founder ruling, 2026-09-16).** Community Clash (Kansas City, KS) has run at least three prior editions and a confirmed fourth in October 2026; the exact date of an in-window edition was not found by any machine route tried. Grappling Industries alternates its "Kansas City" event between Missouri and Kansas venues year to year; its confirmed 2026 Kansas edition (Olathe) falls just past this window, and whether an earlier in-window edition ran in Kansas or Missouri is unresolved. Both are recorded as known-thin and not pursued further; they are one organizer, one date each, not a method failure.
+
+**The `divisions_unknown` standard applies permanently, not once.** The AGF gi-belt table and NAGA's 119-page rulebook were both wrongly headed for `divisions_unknown` after a first pass; a real browser render recovered AGF's table cleanly, and a different PDF parser recovered NAGA's rulebook in full. Neither gap was real... the first tool was the failure, not the organizer's page. Every future `divisions_unknown` determination exhausts a real-browser render and at least one alternate parser before it is recorded, every time, not only when this session happens to catch it.
+
+## 16. Build sequence and gates
 
 **Step 1.** This document, then the D1 schema, then the console, with geocoding on save. The founder hand-enters ten real events. Gate: an evidence gallery of each row beside its source page, plus rejection proofs for an anonymous caller and for a signed-in non-reviewer.
 
@@ -206,6 +229,6 @@ None of these are active crawl targets. Each enters the crawl only after its own
 
 Not yet decided: the date the founder reviews the first automatic-approval precision report, and the final reviewer roster for the console.
 
-## 16. Out of scope for this repository
+## 17. Out of scope for this repository
 
 The member app, the member database, and any member data are out of scope here. No model call reachable by a member is ever routed through, or added to, this repository. This repository governs only ALMANAC's own Cloudflare Workers, its D1 databases, and its console.
