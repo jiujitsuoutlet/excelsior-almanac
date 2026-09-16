@@ -116,6 +116,23 @@ A host enters the crawl only after a human records all ten of these fields in th
 9. Verdict: allowed, allowed with conditions (listed), or not allowed. A host that is not allowed is served only by Tier 3 or direct outreach.
 10. Reviewer name and date.
 
+### One company, many hostnames (founder ruling, 2026-09-16)
+
+A terms review is a ruling about a company and its platform, not about one hostname. Smoothcomp serves each organizer's pages on its own subdomain (for example `fujibjj.smoothcomp.com`), and its own parent URLs redirect there. Measured on 2026-09-16: every subdomain checked serves a `robots.txt` byte-identical to the parent's, and the only Terms of Service is the one at `smoothcomp.com/en/agreements`. The founder read the Acceptable Use Policy in a browser on 2026-09-16 and confirmed that its Abuse of Resources clause speaks of "platform resources", not of any hostname.
+
+The source registry therefore works like this:
+
+1. **One source row for the company.** The row carries the terms review. There is one row for Smoothcomp, not one per subdomain.
+2. **Human-approved aliases, never a wildcard.** Each hostname the scout may touch is listed as an alias of that source, added by a human. A pattern such as `*.smoothcomp.com` is never accepted, because it would also admit hosts the company runs for other purposes.
+3. **One clock per company.** The 10-second delay is shared across every hostname of the source. Ten organizer subdomains still receive one request every 10 seconds in total, not ten.
+4. **A daily robots check per alias.** Each alias's `robots.txt` is hashed daily. A hash that differs from the recorded one pauses that alias only, until a human reviews it.
+5. **Organizer terms before activation.** Before an alias becomes active, a human checks that subdomain for a terms page of its own. If one exists, it is read and recorded before the alias is used.
+6. **The alias table rides its own pull request**, under the Section 3 migration rule.
+
+### Challenges are never bypassed (permanent)
+
+The scout never spoofs a browser, never solves or evades a challenge, and never changes its user agent to get past one. Not in production, not to test, not once. A challenge or a 403 is an answer: the scout stops for that host, and a human decides what happens next. On 2026-09-16 an event page on an organizer subdomain returned a Cloudflare challenge to the honest user agent. That result stands as the answer for those pages.
+
 ## 10. Publish pipe contract
 
 The publisher sends signed batches (an HMAC over the payload and a timestamp; old timestamps are refused) to the app's `almanac-ingest` edge function. That function re-validates every field (HTTPS links, ISO codes, dates, a source URL, a link check within 48 hours) and applies rows through a service-role-only database function, in one transaction, content then status, so `tournaments_demote_on_edit` is honored, never bypassed. Batches carry a row cap and a volume alert. Rotating one secret stops the pipe.
