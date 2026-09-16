@@ -19,6 +19,10 @@ Without `--remote`, wrangler uses a throwaway local copy on your Mac, not Cloudf
 
 ## Step 0: once per Terminal window
 
+**Every new Terminal window starts with these two lines.** Without them wrangler
+has no token and falls back to a browser login with far wider access than this
+work needs.
+
 ```bash
 cd ~/jjo/excelsior-almanac
 ```
@@ -52,8 +56,8 @@ You see two databases: `almanac` and `almanac-staging`.
 ```bash
 npx wrangler d1 migrations list almanac --remote
 ```
-Before you apply, you see one migration to apply:
-`20260915000100_core_schema.sql`.
+Before you apply, you see the migrations waiting:
+`20260915000100_core_schema.sql` and `20260915000200_environment_marker.sql`.
 
 ## Step 3: take a restore point, then apply to production
 
@@ -79,12 +83,13 @@ You now see "No migrations to apply!"
 ```bash
 npx wrangler d1 execute almanac --remote --command "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
 ```
-You see exactly these 18 names:
+You see exactly these 19 names:
 
 - The 15 ALMANAC tables: `approval_rules`, `camp_details`,
   `competition_details`, `coverage_requests`, `crawl_runs`, `events`,
   `review_log`, `reviewers`, `row_signals`, `seminar_details`, `sources`,
   `status_transition_rules`, `superfight_details`, `venue_sessions`, `venues`.
+- `environment_marker` (from the second migration).
 - Three that the tools create themselves: `_cf_KV` (Cloudflare internal),
   `d1_migrations` (wrangler's record of applied migrations), `sqlite_sequence`
   (SQLite's counter for the append-only logs).
@@ -101,7 +106,7 @@ You see one row per column: name, type, whether it is required, and its default.
 ```bash
 npx wrangler d1 execute almanac --remote --command "SELECT (SELECT count(*) FROM sqlite_master WHERE type='trigger') AS triggers, (SELECT count(*) FROM status_transition_rules) AS transition_rules, (SELECT count(*) FROM approval_rules WHERE enabled = 1) AS enabled_auto_rules, (SELECT count(*) FROM events) AS events"
 ```
-You see `triggers` 36, `transition_rules` 34, `enabled_auto_rules` 0, `events` 0.
+You see `triggers` 39, `transition_rules` 34, `enabled_auto_rules` 0, `events` 0.
 
 ## Step 6: prove three rules on production without writing anything
 
@@ -113,21 +118,24 @@ A new row cannot start out approved:
 ```bash
 npx wrangler d1 execute almanac --remote --command "INSERT INTO events (id, event_type, name, start_date, city, state, country, source_url, source_host, source_tier, dedupe_key, status, approved_at) VALUES ('proof-1', 'tournament', 'Proof', '2027-01-01', 'Springfield', 'MO', 'US', 'https://example.com', 'example.com', 1, 'proof-1', 'approved', '2026-09-15')"
 ```
-Expected error contains: `new rows start as draft with no approval`.
+Expected error, word for word after the API line:
+`new rows start as draft with no approval: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER) [code: 7500]`
 
 An automatic approval rule cannot be switched on without an amendment:
 
 ```bash
 npx wrangler d1 execute almanac --remote --command "INSERT INTO approval_rules (id, tier, enabled) VALUES ('proof_rule', 1, 1)"
 ```
-Expected error contains: `CHECK constraint failed`.
+Expected error, word for word after the API line:
+`CHECK constraint failed: enabled = 0 OR amendment_ref IS NOT NULL: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_CHECK) [code: 7500]`
 
 The list of allowed status transitions cannot be changed outside a migration:
 
 ```bash
 npx wrangler d1 execute almanac --remote --command "INSERT INTO status_transition_rules (entity_type, from_status, to_status, system_allowed) VALUES ('event', 'draft', 'approved', 1)"
 ```
-Expected error contains: `status_transition_rules change only by migration`.
+Expected error, word for word after the API line:
+`status_transition_rules change only by migration: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER) [code: 7500]`
 
 Then confirm nothing was written:
 
@@ -145,15 +153,11 @@ This takes about a minute. It writes test rows to `almanac-staging`, tries to
 break every rule, then restores staging to the bookmark it took first. The last
 line must read `58 passed, 0 failed`.
 
-## Step 8: the environment marker (after the console pull request merges)
+## Step 8: write the production marker (after the console pull request merges)
 
 The console reads a marker row inside each database to prove which environment
-it is connected to. Apply the second migration, then write the marker once.
-
-```bash
-npx wrangler d1 migrations apply almanac --remote
-```
-You see `20260915000200_environment_marker.sql` with a green check.
+it is connected to. The table arrived with the second migration; the row is
+written once, by hand, and can never change afterwards.
 
 ```bash
 npx wrangler d1 execute almanac --remote --command "INSERT INTO environment_marker (id, name) VALUES (1, 'production')"
@@ -169,8 +173,15 @@ npx wrangler d1 execute almanac --remote --command "UPDATE environment_marker SE
 ```
 Expected error contains: `environment_marker never changes`.
 
-After this step, Step 4 lists 19 tables (adding `environment_marker`) and Step 5
-counts 39 triggers.
+The marker row is the last thing production needs before the console can point
+at it.
+
+## Where to find the workers.dev subdomain
+
+Cloudflare dashboard, left sidebar: **Compute > Workers & Pages**. The subdomain
+is on the right, under **Account details**. This account's is
+`paul-tokgozoglu.workers.dev`. There is nothing to create; the older
+`/workers/onboarding` link returns 404 once an account already has one.
 
 ## How status changes (for the console and for you)
 

@@ -75,10 +75,9 @@ Caps Lock never turns `A` into a deliberate approval; only a held Shift does.
 
 ## Run it locally against staging
 
-One-time prerequisite: the Cloudflare account must have a workers.dev
-subdomain registered. Wrangler needs it to reach a remote database from your
-Mac. Without it, the start command fails with "You need to register a
-workers.dev subdomain".
+Prerequisite, already satisfied: the account has the workers.dev subdomain
+`paul-tokgozoglu.workers.dev` (dashboard: Compute > Workers & Pages, right-hand
+Account details). Wrangler needs it to reach a remote database from your Mac.
 
 ```bash
 cd ~/jjo/excelsior-almanac
