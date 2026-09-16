@@ -38,14 +38,20 @@ const CHECK_MESSAGES = {
 
 export function translateDbError(err) {
   const message = String(err?.message ?? err);
-  const hit = TRIGGER_MESSAGES.find((m) => message.includes(m));
-  if (hit) return new ConsoleError(409, hit);
+  // A trigger refusal already reads as a sentence. Return the whole sentence,
+  // not the fragment matched on.
+  const raised = message.match(/(?:D1_ERROR:\s*)?(.+?): SQLITE_CONSTRAINT/);
+  const sentence = raised?.[1]?.trim();
+  if (sentence && TRIGGER_MESSAGES.some((m) => sentence.includes(m))) return new ConsoleError(409, sentence);
   if (message.includes('UNIQUE constraint failed')) return new ConsoleError(409, 'A matching row already exists');
   const check = message.match(/CHECK constraint failed: ([^:]+)/);
   if (check) {
     const expression = check[1].trim();
     const friendly = CHECK_MESSAGES[expression];
-    return new ConsoleError(friendly ? 409 : 400, friendly ?? `The database refused this rule: ${expression}`);
+    return new ConsoleError(
+      friendly ? 409 : 400,
+      friendly ?? `This change broke a database rule the console has no plain-English message for yet. Rule: ${expression}. Send this line to the build session.`,
+    );
   }
   if (message.includes('FOREIGN KEY constraint failed')) return new ConsoleError(400, 'A referenced row does not exist');
   return null;

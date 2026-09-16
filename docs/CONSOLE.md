@@ -101,6 +101,10 @@ npx wrangler d1 time-travel restore almanac-staging --env staging --bookmark=PAS
 
 ## Evidence batteries
 
+Every battery below is reported with its gap list: see `docs/VERIFICATION.md`,
+which states what each one does NOT cover. A passing count alone is not a
+report.
+
 ```bash
 npm run test:unit
 ```
