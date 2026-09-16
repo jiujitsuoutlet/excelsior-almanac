@@ -133,6 +133,14 @@ The source registry therefore works like this:
 
 The scout never spoofs a browser, never solves or evades a challenge, and never changes its user agent to get past one. Not in production, not to test, not once. A challenge or a 403 is an answer: the scout stops for that host, and a human decides what happens next. On 2026-09-16 an event page on an organizer subdomain returned a Cloudflare challenge to the honest user agent. That result stands as the answer for those pages.
 
+### Relationship with Smoothcomp (founder strategy, 2026-09-16)
+
+No Smoothcomp partnership or direct sync is sought now. A read-only feed and an embedded registration flow are both Phase 2 asks. They are made only when ALMANAC holds coverage Smoothcomp does not have, and the partnership is obviously worth their time. Smoothcomp's SaaS Agreement prohibits routing registrations off-platform, and Smoothcomp monitors for it. An embed request now would put Clinton's organizer account at risk for nothing.
+
+Until then, the Tournament Master links out to the real registration page. The member pays one extra tap.
+
+The crawl is what builds the leverage for that eventual conversation, so it runs like a company that intends to partner someday: an honest user agent, a generous rate limit, no contact with athlete data, and a full stop the day Smoothcomp asks. If anyone at Smoothcomp ever looks the bot up in their logs, what they find should make that meeting easier, not harder.
+
 ## 10. Publish pipe contract
 
 The publisher sends signed batches (an HMAC over the payload and a timestamp; old timestamps are refused) to the app's `almanac-ingest` edge function. That function re-validates every field (HTTPS links, ISO codes, dates, a source URL, a link check within 48 hours) and applies rows through a service-role-only database function, in one transaction, content then status, so `tournaments_demote_on_edit` is honored, never bypassed. Batches carry a row cap and a volume alert. Rotating one secret stops the pipe.
