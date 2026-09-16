@@ -107,8 +107,6 @@ Copied word for word from v2.54 decision 5:
 
 The scout respects `robots.txt`, re-read daily; a server error skips the host, a 404 means allowed. It sends one request per host per 10 seconds, or the host's own Crawl-delay when longer, using conditional requests, backing off on 429 and 503, and stopping entirely on 403. Its user agent identifies it honestly with a contact address. Schedule (America/Chicago): Tier 1 events nightly 02:00 to 05:00, a link re-check of published rows daily at 06:00, venue pages weekly, and the publisher every 10 minutes. It never bypasses a login, and it stores facts and source URLs only, never copied prose.
 
-**Challenges are never bypassed (permanent, founder ruling 2026-09-16).** A 403 or a bot challenge (Cloudflare's "Just a moment..." page and its kind) is a stop, not a puzzle. The scout never spoofs a browser, never solves or evades a challenge, never rotates its user agent to get past one. Not to test, not once, not on a five-minute basis, not permanently. One event page on an organizer subdomain returned exactly this challenge to the honest user agent on 2026-09-16; that result stands as the answer for those pages, and the crawler does not retry it differently.
-
 ### Search-based discovery (founder ruling, 2026-09-16)
 
 A page a host refuses to serve the crawler may still be reachable through a search index, and that is a different act: reading what a search engine has already indexed is not a request to the host's own server, carries none of the load the crawl-delay law exists to bound, and is exactly what a person does by hand when they look a tournament up. This is not a workaround for the challenge above; it is a separate, permitted path with its own proof requirement, run once before it is trusted:
@@ -118,6 +116,31 @@ A page a host refuses to serve the crawler may still be reachable through a sear
 **What it gives, and what it does not.** A search result gives the list: name, date, city, organizer, the URL, and often a one-line snippet. It does not give the division structure, entry requirements, or competitor counts that live in the page body behind the challenge. Discovery and division data are two different problems with two different answers: discovery runs on search, division structure runs on the organizer's own site (their rules page, FAQ, or rules PDF), never on the search snippet of a Smoothcomp page.
 
 **The API.** Brave Search API, Search plan: $5 per 1,000 requests, 50 queries/second, no dedicated free tier as of 2026-02-12. At nine-state scale (roughly 35 tracked organizers, list-only queries a few times a week per organizer to catch new postings) monthly volume runs several hundred queries; at $5/1,000 that prices under $10/month even with generous headroom for date-conflict resolution and gap-filling. Brave's default terms prohibit storing, caching, or building a database from search results beyond transient use in serving the application; a separate "storage rights" plan exists for anyone who wants to retain raw results, with pricing not published. **ALMANAC does not need that plan.** The scout extracts facts (name, date, city, organizer, URL) from a result and discards the snippet immediately, the same discipline already locked in Section 8 for crawled pages: facts and source URLs only, never the page body, never copied prose. A discarded snippet used once to extract a fact is not "storing search results" under any of these terms.
+
+### One company, many hostnames (founder ruling, 2026-09-16)
+
+A terms review is a ruling about a company and its platform, not about one hostname. Smoothcomp serves each organizer's pages on its own subdomain (for example `fujibjj.smoothcomp.com`), and its own parent URLs redirect there. Measured on 2026-09-16: every subdomain checked serves a `robots.txt` byte-identical to the parent's, and the only Terms of Service is the one at `smoothcomp.com/en/agreements`. The founder read the Acceptable Use Policy in a browser on 2026-09-16 and confirmed that its Abuse of Resources clause speaks of "platform resources", not of any hostname.
+
+The source registry therefore works like this:
+
+1. **One source row for the company.** The row carries the terms review. There is one row for Smoothcomp, not one per subdomain.
+2. **Human-approved aliases, never a wildcard.** Each hostname the scout may touch is listed as an alias of that source, added by a human. A pattern such as `*.smoothcomp.com` is never accepted, because it would also admit hosts the company runs for other purposes.
+3. **One clock per company.** The 10-second delay is shared across every hostname of the source. Ten organizer subdomains still receive one request every 10 seconds in total, not ten.
+4. **A daily robots check per alias.** Each alias's `robots.txt` is hashed daily. A hash that differs from the recorded one pauses that alias only, until a human reviews it.
+5. **Organizer terms before activation.** Before an alias becomes active, a human checks that subdomain for a terms page of its own. If one exists, it is read and recorded before the alias is used.
+6. **The alias table rides its own pull request**, under the Section 3 migration rule.
+
+### Challenges are never bypassed (permanent)
+
+The scout never spoofs a browser, never solves or evades a challenge, and never changes its user agent to get past one. Not in production, not to test, not once. A challenge or a 403 is an answer: the scout stops for that host, and a human decides what happens next. On 2026-09-16 an event page on an organizer subdomain returned a Cloudflare challenge to the honest user agent. That result stands as the answer for those pages. Search-based discovery, above, is exactly what this rule leaves open: reading a search engine's own index is a different act from requesting the challenged page.
+
+### Relationship with Smoothcomp (founder strategy, 2026-09-16)
+
+No Smoothcomp partnership or direct sync is sought now. A read-only feed and an embedded registration flow are both Phase 2 asks. They are made only when ALMANAC holds coverage Smoothcomp does not have, and the partnership is obviously worth their time. Smoothcomp's SaaS Agreement prohibits routing registrations off-platform, and Smoothcomp monitors for it. An embed request now would put Clinton's organizer account at risk for nothing.
+
+Until then, the Tournament Master links out to the real registration page. The member pays one extra tap.
+
+The crawl is what builds the leverage for that eventual conversation, so it runs like a company that intends to partner someday: an honest user agent, a generous rate limit, no contact with athlete data, and a full stop the day Smoothcomp asks. If anyone at Smoothcomp ever looks the bot up in their logs, what they find should make that meeting easier, not harder.
 
 ## 10. Dormant/dropped organizers and the machine-only division law
 
