@@ -68,7 +68,7 @@ fi
 
 echo "== structure"
 expect_value "15 ALMANAC tables exist" "SELECT count(*) AS v FROM sqlite_master WHERE type='table' AND name IN ('reviewers','sources','approval_rules','events','seminar_details','superfight_details','camp_details','competition_details','venues','venue_sessions','row_signals','review_log','status_transition_rules','coverage_requests','crawl_runs')" "15"
-EXPECTED_TRIGGERS=$(grep -c "^CREATE TRIGGER" migrations/20260915000100_core_schema.sql)
+EXPECTED_TRIGGERS=$(cat migrations/*.sql | grep -c "^CREATE TRIGGER")
 expect_value "all $EXPECTED_TRIGGERS triggers exist" "SELECT count(*) AS v FROM sqlite_master WHERE type='trigger'" "$EXPECTED_TRIGGERS"
 expect_value "34 transition rules seeded" "SELECT count(*) AS v FROM status_transition_rules" "34"
 expect_value "no approval rule is enabled" "SELECT count(*) AS v FROM approval_rules WHERE enabled = 1" "0"
