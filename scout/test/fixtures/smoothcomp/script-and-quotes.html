@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fixture Grappler's Cup (fixture data, not a real event)</title>
+<script>
+// A hostile page could put anything here. This parser never runs it and
+// never reads page text as if it were data; it only reads the declared
+// JSON-LD block and specific data attributes below, both through JSON.parse
+// and plain regex matching, neither of which executes anything.
+document.write('<img src=x onerror="alert(1)">');
+</script>
+<!-- an injection attempt inside a comment: ' " <script>alert(2)</script> -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SportsEvent",
+  "name": "Fixture Grappler's Cup",
+  "startDate": "2027-07-04",
+  "location": {
+    "@type": "Place",
+    "name": "Testburg \"Downtown\" Center",
+    "address": {
+      "@type": "PostalAddress",
+      "streetAddress": "600 Fixture Row",
+      "addressLocality": "Testburg",
+      "addressRegion": "MO",
+      "addressCountry": "US"
+    }
+  },
+  "organizer": {
+    "@type": "Organization",
+    "name": "Fixture Grappling Series"
+  }
+}
+</script>
+</head>
+<body>
+<main>
+  <h1>Fixture Grappler's Cup</h1>
+  <div id="event-meta" data-gi="1" data-nogi="1" data-kids="0" data-registration-deadline="2027-06-20"></div>
+  <a class="js-register-link" href="https://smoothcomp.com/en/event/900008/register">Register now</a>
+</main>
+</body>
+</html>

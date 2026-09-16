@@ -23,13 +23,14 @@ fail gets rewritten, not reported.
 
 ## What each battery covers, and what it does not
 
-### `npm run test:unit` (80 tests: 18 console, 62 scout)
+### `npm run test:unit` (102 tests: 18 console, 84 scout)
 
 This command now runs both `console/test/` and `scout/test/`. The console
 half covers: the approval gate, chips, blockers, the count headline,
 duplicate resolution, input validation, Access token verification against a
 real RSA key, the dev identity guard, and database-error wording. See the
-scout section below for the other 62.
+scout section below for the other 84 (67 skeleton, 17 the smoothcomp.com
+Tier 1 parser).
 
 Does not cover:
 - Any real database. These are pure functions.
@@ -95,7 +96,7 @@ Does not cover:
 - **Accessibility**: no screen reader, keyboard-trap or contrast testing.
 - **Rendering a large queue.**
 
-### Scout skeleton: `npm run test:unit` (62 of the 80 tests) and `bash scripts/verify-scout.sh` (12 checks)
+### Scout skeleton: `npm run test:unit` (67 of the 102 tests) and `bash scripts/verify-scout.sh` (12 checks)
 
 The scout skeleton (`scout/`) has no Tier 1 parsers and no real fetch yet.
 Only four things exist: a robots.txt parser and matcher (`robots.js`), a
@@ -105,8 +106,14 @@ injected and, in this pull request, always throws. The batteries below are
 scoped to exactly that: proving the gate refuses correctly and that nothing
 in the skeleton can reach a real network fetch.
 
-Covers, in `scout/test/` (62 tests, pure functions, no database and no
+Covers, in `scout/test/` (67 tests, pure functions, no database and no
 network):
+- **identity.js:** the exact ratified user agent string, and that the
+  robots-matching token is a case-insensitive prefix of it.
+- **gate-drift:** `gate-drift.test.js` reads the ten-field CHECK constraint
+  out of `migrations/20260915000100_core_schema.sql` and fails when it and
+  `gate.js`'s own field list disagree in either direction (see "Does not
+  cover" below: this gap is closed).
 - **robots.js:** user-agent groups (including a repeated group for the same
   agent, which merges rather than shadows), longest-match Allow/Disallow with
   the Allow tie-break, Crawl-delay per group (longest wins on disagreement),
@@ -191,6 +198,136 @@ Does not cover:
   `"true"` on the command line to exercise the runner; no checked-in
   configuration sets it anywhere, and turning it on for real is the
   founder-gated step this skeleton explicitly does not take.
+
+### Tier 1 parser: smoothcomp.com (`npm run test:unit`, 17 of the 102 tests) and `bash scripts/verify-parser.sh` (18 checks)
+
+This is the first Tier 1 parser (ARCHITECTURE.md section 5): a pure,
+deterministic parser for smoothcomp.com only (`scout/src/parsers/
+smoothcomp.js`), registered under the name `smoothcomp_v1` in
+`scout/src/parsers/index.js`. It still fetches nothing. Every fixture it
+runs against is hand-written synthetic HTML with invented names, dates,
+venues and ids ("Fixture Open", "Testburg"). None of it is a saved real
+Smoothcomp page, and **nothing here proves the parser works against the
+live site. That is the founder's one hand-run, later.**
+
+Covers, in `scout/test/parsers/` (17 tests, pure functions, no database and
+no network):
+- A complete event page: every field extracted correctly from a JSON-LD
+  block plus the event-meta attributes, including gi/nogi/kids flags, the
+  registration link, the deadline, and the host's own event id read from
+  the URL.
+- `toDraftRow`: the shaped row carries `source_tier: 1`,
+  `source_host: 'smoothcomp.com'`, and a `dedupe_key` built by the
+  console's own `dedupeKey` (imported, not reimplemented); it never has the
+  vocabulary to set `status`, `approved_by`, `approved_at` or
+  `approval_rule`.
+- A page missing the registration link: still `ok: true`, with a warning,
+  since the console blocks approval on a missing link later, not the parser.
+- A page missing a required field (city): `ok: false` with a plain-English
+  reason naming the field, never a half-built row.
+- A date range across two days: both start and end fill correctly.
+- An impossible date (2027-02-30): rejected with a reason naming the date,
+  not silently accepted.
+- A listing page with a mix of allowed and excluded links: only the allowed
+  event-detail pages survive; every excluded link (order, checkout,
+  scoreboard, brackets, results, the registrant-list page, an athlete
+  profile, an external host, a `javascript:` link, an unrelated nav link)
+  is reported with its own reason; a repeated card for the same event
+  contributes one URL, not two.
+- A malformed, truncated page: never throws; comes back `ok: false` with a
+  reason.
+- A page carrying a `<script>` tag and quoted content: the name and venue
+  (one holding a literal apostrophe, the other an escaped quote) come
+  through JSON.parse intact, and nothing from the script tag or an HTML
+  comment leaks into any output field.
+- `parseEventPage` refuses to guess without a source URL; neither function
+  throws on `null`, `undefined` or empty HTML.
+- The parser never touches `fetch`: a patched, counting global stays at
+  zero across every fixture above, including the malformed one.
+- `toDraftRow` carries no `status`, `approved_by`, `approved_at`,
+  `approval_rule` or `published_at` key at all. A parser must never decide
+  approval; the database owns that column.
+
+Covers, in `bash scripts/verify-parser.sh` (18 checks, against a throwaway
+local D1 with the real `events` schema from `migrations/`):
+- The same fixture-to-`ok`/`reject` classification, read back through the
+  same parser in a separate process, with its own zeroed fetch counter.
+- Every row the parser calls valid is accepted by the database, with no
+  CHECK or trigger refusal.
+- Every accepted row lands as `status = 'draft'`, `source_tier = 1`,
+  `source_host = 'smoothcomp.com'`; nothing in this battery is ever
+  approved, or in any status but draft. The insert is built from the keys
+  the parser ACTUALLY returns, never from a hardcoded column list, so a
+  parser that tried to set its own status is sent to the database as
+  written and refused there, loudly. (GAP CLOSED, 2026-09-16: the first
+  version of this battery built its inserts from a fixed `COLS` constant,
+  which silently dropped any extra key. A parser hardcoded to
+  `status: 'approved'` still scored 18 of 18. Proven by breaking it: with
+  the same injection the battery now reports 13 passed, 5 failed, and the
+  database's own words are "new rows start as draft with no approval:
+  SQLITE_CONSTRAINT_TRIGGER".)
+- The row count in `events` after insertion is exactly the parser's
+  accepted count; the rejected fixtures were never sent to the database at
+  all, let alone refused by it.
+- Inserting the same accepted candidate a second time (a fresh id, the
+  identical `dedupe_key`) is refused by the database's own unique
+  constraint ("event already exists; update it instead"), and leaves no
+  trace: the row count is unchanged.
+
+Does not cover:
+- **The live site.** Every fixture is invented HTML built to match the
+  STRUCTURE this parser walks (a JSON-LD `SportsEvent` block plus a small
+  set of custom data attributes and an anchor class). Real smoothcomp.com
+  markup may not match that structure at all: a different JSON-LD shape,
+  no JSON-LD, different class names, or facts laid out in prose instead of
+  attributes would all make this parser under-extract or reject pages it
+  should accept. Nothing here has been run against a real page, and
+  nothing here can stand in for that.
+- **`event_type`.** Not among the facts this parser extracts (the source
+  pages carry no reliable structured signal for it in the shape assumed
+  here); every accepted row is hardcoded to `'tournament'`. A real
+  Smoothcomp seminar, camp or superfight page would be misclassified.
+- **ISO code correctness.** `state` and `country` are format-validated only
+  (length and case), not checked against a real ISO 3166 list. A source
+  publishing a garbled but length-matching code would pass.
+- **Timezone.** Never extracted; every row inserts with `timezone` left
+  NULL.
+- **Geocoding.** `lat`, `lon` and `geocode_confidence` are never set here;
+  ARCHITECTURE.md assigns that to "geocode on save" in the console.
+- **Prose-only facts.** A registration deadline stated only in a sentence,
+  never in the `data-registration-deadline` attribute this parser reads,
+  comes back as `null`, because this parser never reads prose, by design.
+- **Multiple JSON-LD event blocks on one page**, or an array-shaped JSON-LD
+  document. The code loops over every block and would take the first
+  event-typed one, but no fixture actually exercises more than a single
+  object.
+- **Unusual malformed shapes.** Only one truncation point is fixtured (mid
+  JSON-LD string, before any closing tag). An unterminated `<script>` tag
+  around otherwise-valid JSON, a truncation mid multi-byte UTF-8
+  character, or a page truncated after the JSON-LD block but before the
+  registration anchor are all untested.
+- **Link liveness, corroboration, or any `row_signals`.** This PR fetches
+  nothing, so whether a `registration_url` this parser extracts actually
+  resolves is entirely unverified.
+- **`source_event_ref` collisions.** `scripts/verify-parser.sh` proves the
+  `dedupe_key` unique constraint; it does not exercise the separate
+  `events_source_ref` unique index (two rows naming the same
+  `source_host` and `source_event_ref` with different dedupe keys).
+- **Venues, venue sessions, `row_signals` and `review_log`.** This parser
+  only ever produces `events` rows; nothing here touches the other tables
+  `verify-parser.sh` could reach.
+- **Wiring into the runner.** `scout/src/parsers/index.js` registers
+  `smoothcomp_v1`, but nothing in `queue.js` or `run.js` looks it up yet.
+  This PR proves the parser exists and is correct on its fixtures, not
+  that it is reachable from an actual (still-disabled) scout run.
+- **Scale.** Eight fixtures, one page each. A real nightly run could parse
+  hundreds of Smoothcomp pages; nothing here measures throughput, memory,
+  or regex behavior on a much larger real page.
+- **Anything about the listing page's own URL.** `parseListingPage`
+  filters the links it finds; it does not check that the page it was given
+  is itself `/en/events`, and it has no concept of pagination (a "next
+  page" link is simply dropped as "not an event detail page path",
+  correctly but without being surfaced as a page still to crawl).
 
 ## When a gap becomes a test
 
