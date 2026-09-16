@@ -87,6 +87,17 @@ cd ~/jjo/excelsior-almanac
 bash scripts/console-staging.sh your-github-email@example.com
 ```
 
+If it stops with **"Address already in use"**, a console from an earlier
+Terminal window is still running on that port. Stop it with Ctrl+C in that
+window, or from any window:
+
+```bash
+lsof -ti:8788 | xargs kill -9
+```
+
+Then start it again. (The same applies to port 8788 only; the batteries use
+their own ports.)
+
 Open http://localhost:8788. The badge must read **STAGING**. Anything you add
 there is written to the staging database. To wipe it afterwards, restore
 staging to a bookmark taken before you started:
