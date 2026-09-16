@@ -23,11 +23,13 @@ fail gets rewritten, not reported.
 
 ## What each battery covers, and what it does not
 
-### `npm run test:unit` (18 tests)
+### `npm run test:unit` (80 tests: 18 console, 62 scout)
 
-Covers: the approval gate, chips, blockers, the count headline, duplicate
-resolution, input validation, Access token verification against a real RSA
-key, the dev identity guard, and database-error wording.
+This command now runs both `console/test/` and `scout/test/`. The console
+half covers: the approval gate, chips, blockers, the count headline,
+duplicate resolution, input validation, Access token verification against a
+real RSA key, the dev identity guard, and database-error wording. See the
+scout section below for the other 62.
 
 Does not cover:
 - Any real database. These are pure functions.
@@ -92,6 +94,99 @@ Does not cover:
   action is keyboard. Someone who never learns the keys is still untested.
 - **Accessibility**: no screen reader, keyboard-trap or contrast testing.
 - **Rendering a large queue.**
+
+### Scout skeleton: `npm run test:unit` (62 of the 80 tests) and `bash scripts/verify-scout.sh` (12 checks)
+
+The scout skeleton (`scout/`) has no Tier 1 parsers and no real fetch yet.
+Only four things exist: a robots.txt parser and matcher (`robots.js`), a
+per-host rate limiter (`limiter.js`), the terms-review gate (`gate.js`), a
+plan builder (`queue.js`), and a runner (`run.js`) whose fetch function is
+injected and, in this pull request, always throws. The batteries below are
+scoped to exactly that: proving the gate refuses correctly and that nothing
+in the skeleton can reach a real network fetch.
+
+Covers, in `scout/test/` (62 tests, pure functions, no database and no
+network):
+- **robots.js:** user-agent groups (including a repeated group for the same
+  agent, which merges rather than shadows), longest-match Allow/Disallow with
+  the Allow tie-break, Crawl-delay per group (longest wins on disagreement),
+  Sitemap lines anywhere in the file, a Disallow that names a different agent
+  not applying to ours, and malformed or empty input degrading to "no rules"
+  instead of throwing.
+- **limiter.js:** the 10-second floor with no declared Crawl-delay, a
+  Crawl-delay longer than 10 seconds winning, spacing across repeated calls,
+  independence between hosts, and that `recordFetch` never mutates its input.
+- **gate.js:** every one of the ten terms-review fields refused on its own
+  with its own distinguishable reason, a disallowing verdict, a login
+  requirement, `allowed_with_conditions` with and without its conditions
+  text, an unrecognized verdict string, and a fully complete review that is
+  simply not marked active yet.
+- **queue.js:** a refused host never appearing in the plan, per-host page
+  spacing (including a longer Crawl-delay), the per-host page cap, two hosts
+  scheduled independently, unreadable `page_types` producing no pages without
+  being treated as a gate refusal, and limiter state carried in from a prior
+  run.
+- **run.js:** `runScoutRun` refuses to start without an injected `fetchImpl`
+  (there is no default, and the default is never the real `fetch`); the
+  fetcher is never called when every host is gated; an allowed host reaches
+  the fetcher, which throws, failing the run loudly with the error counted;
+  the run opens before reading sources and closes exactly once with final
+  counts; and a run with no sources at all still opens and closes cleanly.
+
+Covers, in `bash scripts/verify-scout.sh` (12 checks, against a throwaway
+local D1 with real `sources` rows, plus one real Worker run through
+`scout/src/index.js` via `wrangler dev --test-scheduled`): the same four gate
+refusal/admission scenarios read back from real database rows instead of
+hand-built objects, an explicit proof that the injected fetcher's call count
+stayed 0 while the gate and the plan were built, and a real `crawl_runs` row
+showing the run failed, with the three skipped hosts counted, zero pages
+actually fetched, and the one attempted fetch counted as an error.
+
+Does not cover:
+- **A real fetch, of anything, ever.** That is deliberate: this skeleton's
+  fetcher always throws. Nothing here proves what a successful fetch, a
+  Tier 1 parse, or a draft row being created would look like, because none
+  of that exists yet.
+- **robots.txt wildcards.** `*` and `$` in an Allow or Disallow path are not
+  interpreted; matching is literal-prefix only. A real site's robots.txt
+  that relies on wildcards will not be matched correctly yet.
+- **The runner honoring `scheduledAt`.** `queue.js` computes a spaced
+  schedule for each planned page, but `run.js` does not wait for it; it
+  walks the plan immediately. This does not matter while the fetcher always
+  throws, but it will matter the day a real fetcher is wired in.
+- **Limiter state across runs.** Nothing persists `limiterState` between one
+  scheduled run and the next, so the "one request per host per 10 seconds"
+  guarantee is enforced only within a single run, not across the boundary
+  between two runs.
+- **`classifyRobotsFetch` wired into anything.** It is unit-tested on its
+  own, but nothing in `gate.js`, `queue.js` or `run.js` calls it yet, because
+  nothing fetches a real robots.txt yet.
+- **Multiple simultaneous defects on one source.** `checkSource` returns the
+  first reason it finds, in a fixed order; a row missing three fields and
+  requiring a login is only ever reported for the first thing wrong with it,
+  never the full list.
+- **Drift between `gate.js` and the database's own CHECK constraint on
+  `sources.active`** (`migrations/20260915000100_core_schema.sql`). The two
+  are meant to agree field for field, but nothing tests that they actually
+  do; a future migration that changes the ten fields could silently
+  desynchronize them.
+- **Real-world robots.txt files.** Every fixture in `robots.test.js` is
+  hand-written and small; nothing here has been run against an actual
+  site's robots.txt.
+- **Scale.** The largest plan built anywhere in these batteries has one page
+  on one host. A `sources` table with hundreds of rows, or a host with
+  hundreds of page types, is untested.
+- **Two runs, or two Workers, at once.** No concurrency test exists for the
+  runner or for `crawl_runs`.
+- **The Cron Trigger itself.** `scheduled()` is only ever invoked locally,
+  through `wrangler dev --test-scheduled`. Real Cron Trigger behavior
+  (retry-on-failure, CPU limits, overlap with a still-running previous
+  invocation) is untested because nothing is deployed and no trigger is
+  configured.
+- **`env.SCOUT_ENABLED` in a real environment.** The battery sets it to
+  `"true"` on the command line to exercise the runner; no checked-in
+  configuration sets it anywhere, and turning it on for real is the
+  founder-gated step this skeleton explicitly does not take.
 
 ## When a gap becomes a test
 

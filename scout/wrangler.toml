@@ -1,0 +1,36 @@
+# ALMANAC scout Worker configuration (skeleton).
+#
+# Deliberately no [triggers] section: nothing in this repository schedules
+# this Worker. Wiring a Cron Trigger is a separate, founder-gated step
+# (see src/index.js), decided after this skeleton, its tests and its
+# batteries are reviewed on their own pull request.
+#
+# Identifiers only; no secrets here (hold 1). Same Cloudflare account as the
+# console and the rest of ALMANAC (MAD v2.55).
+name = "almanac-scout"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+account_id = "bbe6d5f6cc43632eafdd5ef854f48a25"
+
+[vars]
+# Nothing sets this to "true" anywhere in this repository. See src/index.js.
+SCOUT_ENABLED = "false"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "almanac"
+database_id = "c884b684-1954-4b50-a20f-7d94a62b457a"
+migrations_dir = "../migrations"
+
+# Staging: a separate database, same as the console's.
+[env.staging]
+name = "almanac-scout-staging"
+
+[env.staging.vars]
+SCOUT_ENABLED = "false"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "almanac-staging"
+database_id = "64dcd0c7-3c5a-4ca6-ae27-c8edba3a8a70"
+migrations_dir = "../migrations"
