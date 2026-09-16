@@ -176,6 +176,19 @@ A host enters the crawl only after a human records all ten of these fields in th
 
 The publisher sends signed batches (an HMAC over the payload and a timestamp; old timestamps are refused) to the app's `almanac-ingest` edge function. That function re-validates every field (HTTPS links, ISO codes, dates, a source URL, a link check within 48 hours) and applies rows through a service-role-only database function, in one transaction, content then status, so `tournaments_demote_on_edit` is honored, never bypassed. Batches carry a row cap and a volume alert. Rotating one secret stops the pipe.
 
+**ALMANAC side, built (2026-09-16, `publisher/`).** `payload.js` builds the wire row from a D1 `events` row and canonicalizes the batch for signing; `sign.js` is the HMAC-SHA256 signing and verification, plus the replay-window check; `selection.js` holds the SQL for which rows are due; `index.js` is the Worker cycle: select, cap-check, sign, send, mark-published only on a confirmed 2xx, never on a partial or failed send. 30 tests, all pure functions or an injected D1/fetch, no live database or socket touched. **Deliberately unwired**, same discipline the scout skeleton shipped under: no Cron Trigger in `publisher/wrangler.toml`, `PUBLISHER_ENABLED = "false"`, and nothing calls `runPublishCycle` from the live `scheduled` handler. Wiring it is its own founder-gated step, after the app side below exists.
+
+**App-side prerequisite, not yet built (stops here, per this session's order not to cross into `jiujitsuoutlet/excelsior-master` without a reviewed plan).** Two things, both additive, both riding that repo's own PR law:
+
+1. **One migration.** `tournaments` gains `almanac_id TEXT UNIQUE` (nullable, so every existing hand-entered or scout-era row is untouched). That column is the only new one this milestone needs. The v2.53-authorized `country`, `lat`, `lon`, `event_type`, and the `stale` status value are a separate, later app migration... ALMANAC's D1 schema already carries all of them (`migrations/20260915000100_core_schema.sql` in this repo), but the app's Postgres table does not yet, and nothing above requires them: `payload.js`'s `toTournamentRow` deliberately ships only the columns the app can accept today, so the first row does not wait on that second migration.
+2. **One new edge function, `almanac-ingest`,** deployed `--no-verify-jwt` (the same pattern `ghl-sync` and `lesson-heartbeat` already use, for the same reason: a browser-originated CORS preflight would fail the gateway's JWT check before the function's own auth runs, here reached instead from a Cloudflare Worker, not a browser, but the same escape hatch applies). Its job, in order:
+   - Read the raw body once (for signature verification) before parsing JSON.
+   - Verify `x-almanac-signature` against `canonicalize(body)` using a shared secret, stored as a Supabase Edge Function secret on the app side and a Cloudflare Worker secret on this side, the same value, set once by a human on each side... never in either repository.
+   - Verify `body.timestamp` is within the same 5-minute freshness window `publisher/src/sign.js`'s `isTimestampFresh` already enforces on this side (mirrored, not shared code, since the two repos do not import from each other; a drift test comparing the two constants is worth adding once both exist, the same "one place reads the other" discipline as this repository's hand-copy law).
+   - Validate every row: HTTPS `registration_url`, ISO `start_date`/`registration_deadline`, non-empty `name`/`city`/`state`, and `status` in `('approved', 'expired')` only... any other value is a sign the two repos' status vocabularies have drifted, and the batch is refused whole, not partially applied.
+   - Apply the batch through one service-role-only Postgres function, in a single transaction: `UPSERT` by `almanac_id` (insert if new, `UPDATE` the content columns and `status` if existing). The `UPDATE` path must be a real `UPDATE` statement against `tournaments`, not a delete-and-reinsert, so the existing `tournaments_demote_on_edit` trigger fires exactly as it does for a human-edited row... an ALMANAC-sourced edit to an already-approved row demotes it to `needs_review` the same as any other edit, which is correct: a changed date or link on a live row should get a human's eyes before a member sees the new version, not skip review because a machine made the change.
+   - Never accept a request whose `almanac_id` values do not all begin with a recognizable ALMANAC id shape, and never accept a write from anything but this one function's own service-role client... the existing `tournaments_member_read` RLS policy and the base GRANTs already refuse every other path, this function only needs to not become a second one.
+
 **Sync proven** means all seven of these hold, first on the app's staging project and then on the live project:
 
 1. An approved ALMANAC row appears byte-identical in the app with its `almanac_id`.
@@ -185,6 +198,8 @@ The publisher sends signed batches (an HMAC over the payload and a timestamp; ol
 5. A member token's direct write is rejected server-side.
 6. An unsigned or replayed ingest call is rejected.
 7. A replayed batch creates no duplicates, and the nightly reconciliation shows matching counts and hashes on both sides.
+
+**Acceptance for this milestone specifically:** one coach-approved ALMANAC row, published through this pipe, visible in Fire on a real authenticated member session. That is proof 1 and 2 above, run for real, not simulated. Everything else in this document's later phases waits behind it.
 
 ## 12. Geocoding and places
 

@@ -5,7 +5,7 @@
   "scripts": {
     "verify:schema:local": "bash scripts/verify-schema.sh local",
     "verify:schema:staging": "bash scripts/verify-schema.sh staging",
-    "test:unit": "node --test console/test/ scout/test/",
+    "test:unit": "node --test console/test/ scout/test/ publisher/test/",
     "verify:console": "bash scripts/verify-console.sh",
     "console:staging": "bash scripts/console-staging.sh",
     "verify:scout": "bash scripts/verify-scout.sh",
