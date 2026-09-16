@@ -66,16 +66,20 @@ Does not cover:
 - **Two reviewers at once**, including undo after someone else acted on a row.
 - **Geocoding.** No OpenCage key is configured, so every row saves ungeocoded.
 - **The multi-candidate merge picker.** Merge is tested with one candidate.
-- **Every editable field.** Edit is tested on name, date and registration link.
-- **Network failures, timeouts and abuse.** No fault injection, no rate limits.
+- **Every editable field.** Edit is tested on name, date, registration link,
+  city and organizer.
+- **Abuse and rate limits.** No fault injection beyond a stalled save.
 - **Large queues.** Twelve rows is the largest tested.
 
-### `node scripts/console-walkthrough.mjs local|staging` (27 local, 22 staging)
+### `node scripts/console-walkthrough.mjs local|staging` (38 local, 29 staging)
 
 Covers, by real keyboard in Chromium at 720 px: the badge from the database
 marker, the count headline, hand entry, the blocker, plain A refused, Caps
 Lock not approving, Shift+A, undo, reject, the source window opening and
-following J, and a hostile source page failing to move the console.
+following J, a hostile source page failing to move the console, and the edit
+paths: Enter from a field the test did not fill, the Save button by mouse, Esc
+warning before discarding, keeping the typing when the warning is dismissed,
+and a save whose answer never arrives reporting itself within 15 seconds.
 
 Does not cover:
 - **Any browser but Chromium**, any width but 720 px, and no phone or tablet.
@@ -84,6 +88,8 @@ Does not cover:
 - **Pop-ups being blocked.** The test browser allows them.
 - **The clipboard key (F)**, the help overlay, skip, previous (K), and the
   multi-candidate merge picker.
+- **Mouse-only use.** Only the Save and Cancel buttons are clicked; every other
+  action is keyboard. Someone who never learns the keys is still untested.
 - **Accessibility**: no screen reader, keyboard-trap or contrast testing.
 - **Rendering a large queue.**
 

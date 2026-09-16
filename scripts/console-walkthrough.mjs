@@ -91,12 +91,16 @@ const post = (path, body) => fetch(`${BASE}${path}`, {
 
 const shot = (page, name) => page.screenshot({ path: join(OUT, `${name}.png`) });
 
-// Walk the queue with J until the open row is the one named.
-async function gotoRowNamed(page, name, rows) {
-  for (let i = 0; i < rows + 1; i += 1) {
+// Walk the queue with J until the open row is the one named. Polls to a
+// deadline rather than a fixed delay: the remote database answers slower than
+// the local one, and a fixed wait passed locally while failing on staging.
+async function gotoRowNamed(page, name, rows, deadlineMs = 30000) {
+  const until = Date.now() + deadlineMs;
+  let presses = 0;
+  while (Date.now() < until) {
     if ((await page.getByTestId('row').textContent()).includes(name)) return true;
-    await page.keyboard.press('j');
-    await page.waitForTimeout(400);
+    if (presses < rows + 2) { await page.keyboard.press('j'); presses += 1; }
+    await page.waitForTimeout(600);
   }
   return false;
 }
@@ -220,14 +224,76 @@ try {
   await headline.filter({ hasText: headlineFor(1) }).waitFor();
   check('Shift+A approves once the link is added with E', true);
 
+  // Edit paths a keyboard-only test never touched: Enter from another field,
+  // the Save button by mouse, and Esc with unsaved changes.
+  const editName = `Edit paths ${Math.random().toString(36).slice(2, 7)}`;
+  await page.keyboard.press('n');
+  await page.getByTestId('add-form').waitFor();
+  await page.fill('#add-name', editName);
+  await page.fill('#add-start_date', '2027-05-15');
+  await page.fill('#add-city', 'Joplin');
+  await page.fill('#add-state', 'MO');
+  await page.fill('#add-registration_url', 'https://example.com/register/edit-paths');
+  await page.fill('#add-source_url', `https://example.com/event/${encodeURIComponent(editName)}`);
+  await page.keyboard.press('Enter');
+  await page.getByTestId('add-form').waitFor({ state: 'detached' });
+  check('opened the edit-paths row', await gotoRowNamed(page, editName, baseline.queue + 3),
+    `(open row: ${(await page.getByTestId('row').textContent()).slice(0, 120)})`);
+
+  // Enter, from a field the test did not fill.
+  await page.keyboard.press('e');
+  await page.getByTestId('editbar').waitFor();
+  check('edit mode shows a Save button on screen', await page.getByTestId('save-edit').isVisible());
+  await page.click('[data-field="city"]');
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.type('Carthage');
+  await page.keyboard.press('Enter');
+  await page.getByTestId('gate').waitFor();
+  check('Enter from the city field saves', (await page.getByTestId('row').textContent()).includes('Carthage'),
+    `(row: ${(await page.getByTestId('row').textContent()).slice(0, 140)})`);
+
+  // The Save button, by mouse.
+  await page.keyboard.press('e');
+  await page.getByTestId('editbar').waitFor();
+  await page.click('[data-field="organizer_name"]');
+  await page.keyboard.type('Ozark Grappling');
+  await shot(page, '11-edit-mode-save-button');
+  await page.getByTestId('save-edit').click();
+  await page.getByTestId('gate').waitFor();
+  check('the Save button saves', (await page.getByTestId('row').textContent()).includes('Ozark Grappling'));
+
+  // Esc with unsaved changes must ask first.
+  await page.keyboard.press('e');
+  await page.getByTestId('editbar').waitFor();
+  await page.click('[data-field="venue_name"]');
+  await page.keyboard.type('Typed but not saved');
+  await page.keyboard.press('Escape');
+  await page.getByTestId('discard-panel').waitFor();
+  check('Esc with unsaved changes warns instead of discarding',
+    (await page.getByTestId('discard-panel').textContent()).includes('venue_name'));
+  await shot(page, '12-esc-warns-unsaved');
+  await page.keyboard.press('Escape');
+  await page.getByTestId('discard-panel').waitFor({ state: 'detached' });
+  check('Esc again closes the warning and keeps you editing, typing intact',
+    (await page.getByTestId('editbar').isVisible())
+    && (await page.locator('[data-field="venue_name"]').inputValue()) === 'Typed but not saved');
+  await page.keyboard.press('Escape');
+  await page.getByTestId('discard-panel').waitFor();
+  await page.keyboard.press('d');
+  await page.getByTestId('gate').waitFor();
+  check('D discards and the row is unchanged', !(await page.getByTestId('row').textContent()).includes('Typed but not saved'));
+
   if (MODE === 'local') {
-    // Fill the queue to twelve rows and prove the count headline.
-    for (let i = baseline.queue + 2; i <= 12; i += 1) {
+    // Fill the queue to exactly twelve rows and prove the count headline.
+    const queueSize = async () => (await (await fetch(`${BASE}/api/overview`)).json()).queue.rows.length;
+    for (let i = await queueSize(); i < 12; i += 1) {
       await post('/api/events', {
-        event_type: 'tournament', name: `Queue Open ${i}`, start_date: `2027-0${(i % 9) + 1}-1${i % 10}`, city: `Town${i}`,
-        state: 'MO', country: 'US', registration_url: `https://example.com/register/${i}`, source_url: `https://example.com/event/${i}`,
+        event_type: 'tournament', name: `Queue Open ${i} ${Math.random().toString(36).slice(2, 6)}`,
+        start_date: `2027-0${(i % 9) + 1}-1${i % 10}`, city: `Town${i}`, state: 'MO', country: 'US',
+        registration_url: `https://example.com/register/${i}`, source_url: `https://example.com/event/q${i}-${Math.random().toString(36).slice(2, 6)}`,
       });
     }
+    check('queue filled to twelve rows', (await queueSize()) === 12, `(${await queueSize()})`);
     await page.reload();
     await headline.filter({ hasText: '12 rows, about 4 minutes' }).waitFor();
     check('twelve rows: "12 rows, about 4 minutes"', true);
@@ -257,6 +323,24 @@ try {
     await page.waitForTimeout(2000);
     check('hostile source page cannot silently move the console: leave-site dialog raised', dialogs.includes('beforeunload'), `(dialogs: ${dialogs.join(',') || 'none'})`);
     check('console is still on the console after the dialog is dismissed', page.url().startsWith(BASE), `(${page.url()})`);
+
+    // A save whose answer never arrives must report itself within 15 seconds.
+    await page.keyboard.press('e');
+    await page.getByTestId('editbar').waitFor();
+    await context.route('**/api/events/*/edit', () => { /* never answered */ });
+    await page.click('[data-field="organizer_name"]');
+    await page.keyboard.type('Stalled');
+    await page.keyboard.press('Enter');
+    check('the Save button shows it is working', (await page.getByTestId('save-edit').textContent()).includes('Saving'));
+    await page.locator('#toast.warn').waitFor({ timeout: 25000 });
+    const stallToast = await page.locator('#toast').textContent();
+    check('a stalled save reports itself instead of going quiet', stallToast.includes('No answer in 15 seconds'), `(${stallToast})`);
+    check('the typing survives a stalled save', (await page.locator('[data-field="organizer_name"]').inputValue()).includes('Stalled'));
+    await context.unroute('**/api/events/*/edit');
+    await page.keyboard.press('Escape');
+    await page.getByTestId('discard-panel').waitFor();
+    await page.keyboard.press('d');
+    await page.getByTestId('gate').waitFor();
 
     // R then 2 rejects with a reason.
     await page.keyboard.press('r');

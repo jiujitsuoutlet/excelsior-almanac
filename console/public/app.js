@@ -30,13 +30,27 @@ function el(tag, attrs = {}, ...children) {
   return node;
 }
 
+const REQUEST_TIMEOUT_MS = 15000;
+
 async function api(path, { method = 'GET', body } = {}) {
-  const res = await fetch(path, {
-    method,
-    headers: method === 'POST' ? { 'Content-Type': 'application/json', 'X-Almanac-Request': '1' } : {},
-    body: body ? JSON.stringify(body) : undefined,
-    credentials: 'same-origin',
-  });
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), REQUEST_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(path, {
+      method,
+      headers: method === 'POST' ? { 'Content-Type': 'application/json', 'X-Almanac-Request': '1' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+      credentials: 'same-origin',
+      signal: abort.signal,
+    });
+  } catch (err) {
+    throw Object.assign(new Error(abort.signal.aborted
+      ? 'No answer in 15 seconds. Nothing was saved. Check the terminal running the console, then try again.'
+      : `The console could not reach the server: ${err.message}. Nothing was saved.`), { status: 0, data: {} });
+  } finally {
+    clearTimeout(timer);
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status, data });
   return data;
@@ -174,6 +188,13 @@ function renderMain() {
     card.append(el('div', { class: 'dupes dupes-none', 'data-testid': 'dupes' }, 'No possible duplicates'));
   }
 
+  if (editing) {
+    card.append(el('div', { class: 'editbar', 'data-testid': 'editbar' },
+      el('button', { class: 'primary', 'data-testid': 'save-edit', onclick: saveEdit }, 'Save changes'),
+      el('button', { 'data-testid': 'cancel-edit', onclick: cancelEdit }, 'Cancel'),
+      el('span', { class: 'hint' }, 'Enter saves from any field. Esc cancels.'),
+    ));
+  }
   if (!editing && eligibility.blockers?.length) {
     const b = eligibility.blockers[0];
     card.append(el('div', { class: 'gate gate-blocked', 'data-testid': 'gate' }, `${b.message} ${b.fix}`));
@@ -370,6 +391,7 @@ async function act(fn, successMessage) {
 function approve(deliberate) {
   const row = currentRow();
   if (!row) return;
+  if (state.busy) { toast('Still working on the last action...', true); return; }
   const blocker = state.detail.eligibility.blockers?.[0];
   if (blocker) { toast(`${blocker.message} ${blocker.fix}`, true); return; }
   if (!deliberate && !state.detail.eligibility.plain) {
@@ -404,14 +426,60 @@ function distinct() {
   act(() => api(`/api/events/${row.id}/duplicate`, { method: 'POST', body: { action: 'distinct' } }), 'Marked distinct');
 }
 
+// What the reviewer has typed, compared with what the row holds.
+function editedFields() {
+  const event = state.detail?.event;
+  if (!event) return [];
+  const changed = [];
+  document.querySelectorAll('#main [data-field]').forEach((n) => {
+    const now = n.type === 'checkbox' ? (n.checked ? 1 : 0) : n.value;
+    const before = n.type === 'checkbox' ? (event[n.dataset.field] ?? 0) : (event[n.dataset.field] ?? '');
+    if (String(now) !== String(before)) changed.push(n.dataset.field);
+  });
+  return changed;
+}
+
+// Closing the warning panel returns to edit mode WITHOUT re-rendering, so
+// everything typed is still on screen.
+function keepEditing() {
+  closeOverlay();
+  state.mode = 'edit';
+}
+
+function discardEdit() {
+  closeOverlay();
+  state.mode = 'queue';
+  renderMain();
+  toast('Changes discarded');
+}
+
+// Esc never throws typing away without asking.
+function cancelEdit() {
+  const changed = editedFields();
+  if (changed.length === 0) { state.mode = 'queue'; renderMain(); return; }
+  showOverlay('discard', el('div', { class: 'panel', 'data-testid': 'discard-panel' },
+    el('h2', {}, 'Unsaved changes'),
+    el('p', {}, `You changed: ${changed.join(', ')}.`),
+    el('ol', {},
+      el('li', {}, el('kbd', {}, 'S'), ' save the changes'),
+      el('li', {}, el('kbd', {}, 'D'), ' discard them'),
+      el('li', {}, el('kbd', {}, 'Esc'), ' keep editing')),
+    el('p', {},
+      el('button', { class: 'primary', onclick: () => { keepEditing(); saveEdit(); } }, 'Save changes'), ' ',
+      el('button', { 'data-testid': 'discard-confirm', onclick: discardEdit }, 'Discard')),
+  ));
+}
+
 async function saveEdit() {
   const row = currentRow();
   const body = {};
   document.querySelectorAll('#main [data-field]').forEach((n) => {
     body[n.dataset.field] = n.type === 'checkbox' ? n.checked : n.value;
   });
-  if (state.busy) return;
+  if (state.busy) { toast('Still saving the last change...', true); return; }
   state.busy = true;
+  const saveButton = document.querySelector('[data-testid="save-edit"]');
+  if (saveButton) { saveButton.textContent = 'Saving...'; saveButton.disabled = true; }
   try {
     const res = await api(`/api/events/${row.id}/edit`, { method: 'POST', body });
     state.mode = 'queue';
@@ -423,6 +491,8 @@ async function saveEdit() {
     toast(fields ? `${err.message}: ${fields}` : err.message, true);
   } finally {
     state.busy = false;
+    const button = document.querySelector('[data-testid="save-edit"]');
+    if (button) { button.textContent = 'Save changes'; button.disabled = false; }
   }
 }
 
@@ -496,8 +566,16 @@ document.addEventListener('keydown', (e) => {
   const inField = ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName);
 
   if (e.key === 'Escape') {
-    if (state.mode === 'edit') { state.mode = 'queue'; renderMain(); }
+    if (state.mode === 'discard') keepEditing();   // back to editing, typing intact
+    else if (state.mode === 'edit') cancelEdit();
     else if (!$('overlay').hidden) closeOverlay();
+    e.preventDefault();
+    return;
+  }
+  if (state.mode === 'discard') {
+    const k = e.key.toLowerCase();
+    if (k === 's') { keepEditing(); saveEdit(); }
+    if (k === 'd') discardEdit();
     e.preventDefault();
     return;
   }
