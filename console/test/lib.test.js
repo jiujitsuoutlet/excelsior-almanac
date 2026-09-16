@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   queueHeadline, dedupeKey, normalizeText, nameSimilarity, isRealDate, validateEventInput,
-  chipFor, chipsFor, duplicateState, approvalEligibility, weekdayDate, daysUntil,
+  chipFor, chipsFor, duplicateState, approvalEligibility, approvalBlockers, weekdayDate, daysUntil,
 } from '../src/lib.js';
 
 test('headline shows the count and minutes before you start', () => {
@@ -99,6 +99,22 @@ test('duplicates clear only when marked distinct from every candidate', () => {
   const newCandidate = duplicateState(e, [...candidates, { id: 'c3', name: 'Verify Open II', city: 'Springfield' }],
     [{ id: 5, signal: 'duplicate_score', passed: 1, evidence: { resolved: 'distinct', candidate_ids: ['c1'] } }]);
   assert.deepEqual(newCandidate.unresolved.map((c) => c.id), ['c3']);
+});
+
+test('an event with no registration link cannot be approved at all', () => {
+  const none = { candidates: [], unresolved: [] };
+  const noLink = { ...event, registration_url: null };
+  const blockers = approvalBlockers(noLink);
+  assert.equal(blockers.length, 1);
+  assert.equal(blockers[0].field, 'registration_url');
+  assert.match(blockers[0].message, /must have one/);
+  assert.match(blockers[0].fix, /Press E/);
+  // Neither A nor Shift\+A: eligibility is not plain, and the blocker is carried.
+  const gate = approvalEligibility(chipsFor(noLink, green), none, noLink);
+  assert.equal(gate.plain, false);
+  assert.equal(gate.blockers.length, 1);
+  // With a link, the same row has no blockers.
+  assert.equal(approvalEligibility(chipsFor(event, green), none, event).blockers.length, 0);
 });
 
 test('date display', () => {

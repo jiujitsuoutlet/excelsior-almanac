@@ -174,7 +174,10 @@ function renderMain() {
     card.append(el('div', { class: 'dupes dupes-none', 'data-testid': 'dupes' }, 'No possible duplicates'));
   }
 
-  if (!editing) {
+  if (!editing && eligibility.blockers?.length) {
+    const b = eligibility.blockers[0];
+    card.append(el('div', { class: 'gate gate-blocked', 'data-testid': 'gate' }, `${b.message} ${b.fix}`));
+  } else if (!editing) {
     card.append(eligibility.plain
       ? el('div', { class: 'gate gate-plain', 'data-testid': 'gate' }, 'Every critical field is confirmed: ', el('kbd', {}, 'A'), ' approves.')
       : el('div', { class: 'gate gate-deliberate', 'data-testid': 'gate' },
@@ -294,6 +297,9 @@ function openAdd() {
       ...field('State', 'state', 'text', { required: true, maxlength: 3, placeholder: 'MO' }),
       ...field('Country', 'country', 'text', { required: true, maxlength: 2, value: 'US' }),
       ...field('Registration link', 'registration_url', 'url', { placeholder: 'https://' }),
+      el('span'),
+      el('span', { class: 'hint' }, 'Needed before the event can be approved. You can save without it and add it later.'),
+      el('span'),
       ...field('Deadline', 'registration_deadline', 'date'),
       el('span', {}, 'Divisions'),
       el('span', { class: 'checks' }, ...['gi', 'nogi', 'kids'].map((f) => el('label', {}, el('input', { type: 'checkbox', name: f }), f))),
@@ -317,7 +323,9 @@ async function submitAdd(e) {
   try {
     const res = await api('/api/events', { method: 'POST', body });
     closeOverlay();
-    toast(`Saved to the queue${res.geocoded ? '' : ' (not geocoded)'}`);
+    toast(body.registration_url
+      ? `Saved to the queue${res.geocoded ? '' : ' (not geocoded)'}`
+      : 'Saved to the queue. It needs a registration link before it can be approved (press E).');
     await refresh(res.id);
   } catch (err) {
     if (err.data?.fields) {
@@ -362,6 +370,8 @@ async function act(fn, successMessage) {
 function approve(deliberate) {
   const row = currentRow();
   if (!row) return;
+  const blocker = state.detail.eligibility.blockers?.[0];
+  if (blocker) { toast(`${blocker.message} ${blocker.fix}`, true); return; }
   if (!deliberate && !state.detail.eligibility.plain) {
     toast(`Not every critical field is confirmed. Read the amber fields, then Shift+A. (${state.detail.eligibility.reasons.join('; ')})`, true);
     return;

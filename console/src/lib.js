@@ -203,13 +203,28 @@ export function duplicateState(event, candidates, signals) {
 const FIELD_LABELS = { name: 'Name', start_date: 'Date', location: 'Location', registration_url: 'Registration link' };
 const CHIP_WORDS = { amber: 'not confirmed', grey: 'not checked' };
 
-export function approvalEligibility(chips, duplicates) {
+// Hard blockers: things the database will refuse outright, whatever the
+// reviewer presses. Each names the field, the rule, and the way out.
+export function approvalBlockers(event) {
+  const blockers = [];
+  if (!event.registration_url) {
+    blockers.push({
+      field: 'registration_url',
+      message: 'This event has no registration link, and an approved event must have one (https).',
+      fix: 'Press E to add the link, or R then 4 to reject it as a bad link.',
+    });
+  }
+  return blockers;
+}
+
+export function approvalEligibility(chips, duplicates, event = null) {
+  const blockers = event ? approvalBlockers(event) : [];
   const reasons = [];
   for (const f of CRITICAL_FIELDS) {
     if (chips[f] !== 'green') reasons.push(`${FIELD_LABELS[f]} ${CHIP_WORDS[chips[f]] ?? 'not checked'}`);
   }
   if (duplicates.unresolved.length > 0) reasons.push('Possible duplicate not resolved');
-  return { plain: reasons.length === 0, reasons };
+  return { plain: reasons.length === 0 && blockers.length === 0, reasons, blockers };
 }
 
 export function weekdayDate(isoDate) {

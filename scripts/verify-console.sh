@@ -202,6 +202,23 @@ req GET $M /api/overview
 N=$(jqv '.queue.rows | length')
 if [ "$N" = "12" ]; then expect "twelve rows headline" 200 '.queue.headline' '12 rows, about 4 minutes'; else bad "test setup: queue has $N rows, wanted 12"; fi
 
+echo "== a row with no registration link (the founder's case, 2026-09-15)"
+req POST $M /api/events '{"event_type":"tournament","name":"Fake event","start_date":"2026-10-09","end_date":"2026-10-10","city":"st louis","state":"MO","country":"US","source_url":"https://example.com/fake"}'
+expect "row without a registration link still saves" 201
+NOLINK=$(jqv .id)
+req POST $M /api/events/$NOLINK/decision '{"decision":"approve","deliberate":true}'
+expect "Shift+A refused, and the message says what to do" 409 '.error' 'This event has no registration link, and an approved event must have one (https). Press E to add the link, or R then 4 to reject it as a bad link.'
+req POST $M /api/events/$NOLINK/decision '{"decision":"approve","deliberate":false}'
+expect "plain A refused with the same message" 409 '.error' 'This event has no registration link, and an approved event must have one (https). Press E to add the link, or R then 4 to reject it as a bad link.'
+req POST $M /api/events/$NOLINK/edit '{"registration_url":"https://example.com/register/fake"}'
+expect "E adds the registration link" 200 '.changed[0]' 'registration_url'
+req POST $M /api/events/$NOLINK/decision '{"decision":"approve","deliberate":true}'
+expect "Shift+A approves once the link is there" 200 '.status' 'approved'
+req GET $M /api/decisions/recent
+req POST $M /api/decisions/undo "{\"log_id\":$(jqv '.decisions[0].log_id')}" >/dev/null
+req POST $M /api/events/$NOLINK/decision '{"decision":"reject","reason":4}'
+expect "or reject it as a bad link" 200 '.reason' 'bad_link'
+
 echo "== static headers"
 HDR=$(curl -s -D - -o /dev/null "http://localhost:$M/")
 if echo "$HDR" | grep -qi "content-security-policy: default-src 'self'"; then ok "console page sends a strict Content-Security-Policy"; else bad "no CSP header on the console page"; fi

@@ -12,6 +12,7 @@ import { mkdtempSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
+import { queueHeadline } from '../console/src/lib.js';
 
 const MODE = process.argv[2];
 if (!['local', 'staging'].includes(MODE)) { console.error('usage: node scripts/console-walkthrough.mjs local|staging'); process.exit(2); }
@@ -57,7 +58,13 @@ if (MODE === 'local') {
   console.log(`== Time Travel bookmark before test rows: ${bookmark}`);
   if (!bookmark) process.exit(1);
 }
+// The database may already hold rows (the founder's own hand entries on staging).
+// Measured BEFORE this run writes anything, so the restore can be checked against it.
+const baseline = jsonOut(wrangler(['d1', 'execute', ...d1Target, '--json', '--command',
+  "SELECT (SELECT count(*) FROM events) AS events, (SELECT count(*) FROM reviewers) AS reviewers, (SELECT count(*) FROM review_log) AS logs, (SELECT count(*) FROM events WHERE status = 'needs_review') AS queue"]))[0].results[0];
 wrangler(['d1', 'execute', ...d1Target, '--command', `INSERT INTO reviewers (email, role) VALUES ('${REVIEWER}', 'admin')`]);
+console.log(`== baseline: ${JSON.stringify(baseline)}`);
+const headlineFor = (extra) => queueHeadline(baseline.queue + extra);
 
 const devArgs = ['wrangler', 'dev', '--config', CFG, '--port', String(PORT), '--show-interactive-dev-session=false',
   '--var', 'ALLOW_DEV_IDENTITY:true', '--var', `DEV_ACCESS_EMAIL:${REVIEWER}`];
@@ -84,6 +91,16 @@ const post = (path, body) => fetch(`${BASE}${path}`, {
 
 const shot = (page, name) => page.screenshot({ path: join(OUT, `${name}.png`) });
 
+// Walk the queue with J until the open row is the one named.
+async function gotoRowNamed(page, name, rows) {
+  for (let i = 0; i < rows + 1; i += 1) {
+    if ((await page.getByTestId('row').textContent()).includes(name)) return true;
+    await page.keyboard.press('j');
+    await page.waitForTimeout(400);
+  }
+  return false;
+}
+
 let browser;
 try {
   await waitForServer();
@@ -102,8 +119,8 @@ try {
   check('badge says STAGING', (await badge.textContent()) === 'STAGING', `(badge: ${await badge.textContent()})`);
   const headline = page.getByTestId('headline');
   await headline.waitFor();
-  check('empty queue: "Nothing to review"', (await headline.textContent()) === 'Nothing to review', `(${await headline.textContent()})`);
-  await shot(page, '01-empty-queue');
+  check(`queue headline matches the ${baseline.queue} rows already waiting`, (await headline.textContent()) === headlineFor(0), `(${await headline.textContent()} vs ${headlineFor(0)})`);
+  await shot(page, '01-queue-on-open');
 
   // N: add an event by hand.
   await page.keyboard.press('n');
@@ -119,8 +136,9 @@ try {
   await page.fill('#add-source_url', 'https://example.com/event/walkthrough');
   await shot(page, '02-add-event-form');
   await page.keyboard.press('Enter');
-  await headline.filter({ hasText: '1 row, about 1 minute' }).waitFor();
-  check('one row: "1 row, about 1 minute"', true);
+  await headline.filter({ hasText: headlineFor(1) }).waitFor();
+  check(`headline counts the new row: "${headlineFor(1)}"`, true);
+  check('opened the row just added', await gotoRowNamed(page, 'Walkthrough Open', baseline.queue + 1));
   await page.getByTestId('gate').waitFor();
   const gate = await page.getByTestId('gate').textContent();
   check('hand entry shows "Deliberate approval required"', gate.startsWith('Deliberate approval required'), `(${gate})`);
@@ -137,18 +155,18 @@ try {
   await page.keyboard.press('a');
   await page.locator('#toast.warn').waitFor();
   check('plain A refused with a warning', (await page.locator('#toast').textContent()).includes('Shift+A'));
-  check('row still waiting after plain A', (await headline.textContent()) === '1 row, about 1 minute');
+  check('row still waiting after plain A', (await headline.textContent()) === headlineFor(1));
   await shot(page, '04-plain-a-refused');
 
   // Caps Lock: an uppercase "A" with Shift NOT held must not approve.
   await page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'A', shiftKey: false, bubbles: true })));
   await page.waitForTimeout(1500);
-  check('uppercase A without Shift (Caps Lock) does not approve', (await headline.textContent()) === '1 row, about 1 minute', `(${await headline.textContent()})`);
+  check('uppercase A without Shift (Caps Lock) does not approve', (await headline.textContent()) === headlineFor(1), `(${await headline.textContent()})`);
 
   // Shift+A approves.
   await page.keyboard.press('Shift+A');
-  await headline.filter({ hasText: 'Nothing to review' }).waitFor();
-  check('Shift+A approves the row', (await headline.textContent()) === 'Nothing to review');
+  await headline.filter({ hasText: headlineFor(0) }).waitFor();
+  check('Shift+A approves the row', (await headline.textContent()) === headlineFor(0));
   await shot(page, '05-approved-with-shift-a');
 
   // U shows recent decisions; 1 undoes.
@@ -158,12 +176,53 @@ try {
   check('U lists recent decisions', undoItems >= 1, `(${undoItems})`);
   await shot(page, '06-undo-panel');
   await page.keyboard.press('1');
-  await headline.filter({ hasText: '1 row, about 1 minute' }).waitFor();
+  await headline.filter({ hasText: headlineFor(1) }).waitFor();
   check('undo returns the row to the queue', true);
+
+  // A row with no registration link: the database will never approve it, so the
+  // console must say so before the reviewer presses anything (founder's case).
+  await page.keyboard.press('n');
+  await page.getByTestId('add-form').waitFor();
+  // A unique name: staging may already hold a row with the same date and city,
+  // and the console refuses same name + date + place as a duplicate.
+  const noLinkName = `Fake event ${Math.random().toString(36).slice(2, 7)}`;
+  await page.fill('#add-name', noLinkName);
+  await page.fill('#add-start_date', '2026-10-09');
+  await page.fill('#add-end_date', '2026-10-10');
+  await page.fill('#add-city', 'st louis');
+  await page.fill('#add-state', 'MO');
+  await page.fill('#add-source_url', 'https://example.com/event/fake');
+  await page.keyboard.press('Enter');
+  await page.getByTestId('add-form').waitFor({ state: 'detached' });
+  await headline.filter({ hasText: headlineFor(2) }).waitFor();
+  check('opened the no-link row', await gotoRowNamed(page, noLinkName, baseline.queue + 2));
+  const blockedGate = await page.getByTestId('gate').textContent();
+  check('no-link row states the rule and the fix before any key is pressed',
+    blockedGate.includes('no registration link') && blockedGate.includes('Press E'), `(${blockedGate})`);
+  await shot(page, '10-no-registration-link');
+  await page.keyboard.press('Shift+A');
+  await page.locator('#toast.warn').waitFor();
+  const blockedToast = await page.locator('#toast').textContent();
+  check('Shift+A refused with the same actionable message',
+    blockedToast.includes('no registration link') && blockedToast.includes('Press E'), `(${blockedToast})`);
+  check('the row is still in the queue', (await headline.textContent()) === headlineFor(2));
+  await page.keyboard.press('e');
+  await page.locator('[data-field="registration_url"]').waitFor();
+  await page.fill('[data-field="registration_url"]', 'https://example.com/register/fake');
+  await page.keyboard.press('Enter');
+  // Wait for the save to land: the gate line only renders when edit mode is over.
+  // (A fixed delay passed locally and failed against the slower remote database.)
+  await page.getByTestId('gate').waitFor();
+  await page.locator('[data-field="registration_url"]').waitFor({ state: 'detached' });
+  const savedGate = await page.getByTestId('gate').textContent();
+  check('after adding the link the blocker is gone', !savedGate.includes('no registration link'), `(${savedGate})`);
+  await page.keyboard.press('Shift+A');
+  await headline.filter({ hasText: headlineFor(1) }).waitFor();
+  check('Shift+A approves once the link is added with E', true);
 
   if (MODE === 'local') {
     // Fill the queue to twelve rows and prove the count headline.
-    for (let i = 2; i <= 12; i += 1) {
+    for (let i = baseline.queue + 2; i <= 12; i += 1) {
       await post('/api/events', {
         event_type: 'tournament', name: `Queue Open ${i}`, start_date: `2027-0${(i % 9) + 1}-1${i % 10}`, city: `Town${i}`,
         state: 'MO', country: 'US', registration_url: `https://example.com/register/${i}`, source_url: `https://example.com/event/${i}`,
@@ -172,6 +231,7 @@ try {
     await page.reload();
     await headline.filter({ hasText: '12 rows, about 4 minutes' }).waitFor();
     check('twelve rows: "12 rows, about 4 minutes"', true);
+    check('opened row 1 of 12', (await page.getByTestId('position').textContent()).includes('of 12'));
     await shot(page, '07-twelve-rows-headline');
 
     // J moves to the next row and the source window follows.
@@ -222,6 +282,7 @@ try {
 } catch (err) {
   fail += 1;
   console.log(`FAIL  walkthrough crashed: ${err.message}`);
+  console.log(String(err.stack).split('\n').slice(0, 6).join('\n'));
 } finally {
   await browser?.close();
   dev.kill();
@@ -230,7 +291,9 @@ try {
     wrangler(['d1', 'time-travel', 'restore', 'almanac-staging', '--env', 'staging', '--config', CFG, `--bookmark=${bookmark}`]);
     const counts = jsonOut(wrangler(['d1', 'execute', ...d1Target, '--json', '--command',
       "SELECT (SELECT count(*) FROM events) AS events, (SELECT count(*) FROM reviewers) AS reviewers, (SELECT count(*) FROM review_log) AS logs, (SELECT name FROM environment_marker) AS marker"]))[0].results[0];
-    check('staging restored: no events, reviewers or log rows; marker kept', counts.events === 0 && counts.reviewers === 0 && counts.logs === 0 && counts.marker === 'staging', JSON.stringify(counts));
+    const same = counts.events === baseline.events && counts.reviewers === baseline.reviewers && counts.logs === baseline.logs;
+    check('staging restored to the rows it held before this run; marker kept',
+      same && counts.marker === 'staging', `(after ${JSON.stringify(counts)} vs baseline ${JSON.stringify(baseline)})`);
   }
   if (persist) rmSync(persist, { recursive: true, force: true });
   console.log(`== result: ${pass} passed, ${fail} failed`);

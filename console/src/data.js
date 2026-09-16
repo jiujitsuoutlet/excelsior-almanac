@@ -3,7 +3,7 @@
 
 import {
   REJECT_REASONS, EDITABLE_FIELDS, chipsFor, duplicateState, approvalEligibility,
-  dedupeKey, hostOf, queueHeadline, weekdayDate, daysUntil,
+  dedupeKey, hostOf, queueHeadline, weekdayDate, daysUntil, approvalBlockers,
 } from './lib.js';
 
 export class ConsoleError extends Error {
@@ -25,12 +25,28 @@ const TRIGGER_MESSAGES = [
   'append-only', 'ids never change', 'new rows start as draft',
 ];
 
+// Database rules stated in the reviewer's words. Anything not listed still
+// shows its rule text, never a bare "check constraint".
+const CHECK_MESSAGES = {
+  "status <> 'approved' OR registration_url IS NOT NULL":
+    'An approved event must have a registration link (https). Press E to add it, or R then 4 to reject it.',
+  "(status = 'approved') = (approved_at IS NOT NULL)":
+    'Approval time and status disagree; reload the row and try again.',
+  'enabled = 0 OR amendment_ref IS NOT NULL':
+    'An automatic approval rule cannot be switched on without an amendment reference.',
+};
+
 export function translateDbError(err) {
   const message = String(err?.message ?? err);
   const hit = TRIGGER_MESSAGES.find((m) => message.includes(m));
   if (hit) return new ConsoleError(409, hit);
   if (message.includes('UNIQUE constraint failed')) return new ConsoleError(409, 'A matching row already exists');
-  if (message.includes('CHECK constraint failed')) return new ConsoleError(400, 'The database refused a value (check constraint)');
+  const check = message.match(/CHECK constraint failed: ([^:]+)/);
+  if (check) {
+    const expression = check[1].trim();
+    const friendly = CHECK_MESSAGES[expression];
+    return new ConsoleError(friendly ? 409 : 400, friendly ?? `The database refused this rule: ${expression}`);
+  }
   if (message.includes('FOREIGN KEY constraint failed')) return new ConsoleError(400, 'A referenced row does not exist');
   return null;
 }
@@ -110,7 +126,7 @@ export async function rowDetail(db, id) {
   const signals = await signalsFor(db, id);
   const chips = chipsFor(event, signals);
   const duplicates = duplicateState(event, await candidatesFor(db, event), signals);
-  const eligibility = approvalEligibility(chips, duplicates);
+  const eligibility = approvalEligibility(chips, duplicates, event);
   return {
     event,
     display: { start: weekdayDate(event.start_date), end: event.end_date ? weekdayDate(event.end_date) : null, days_until: daysUntil(event.start_date, today()) },
@@ -141,6 +157,10 @@ export async function decide(db, id, body, actor) {
   await requireStatus(db, id, 'needs_review');
   if (body.decision === 'approve') {
     const detail = await rowDetail(db, id);
+    const blockers = detail.eligibility.blockers;
+    if (blockers.length > 0) {
+      throw new ConsoleError(409, `${blockers[0].message} ${blockers[0].fix}`, { blockers });
+    }
     if (!detail.eligibility.plain && body.deliberate !== true) {
       throw new ConsoleError(409, 'Deliberate approval required (Shift+A)', { reasons: detail.eligibility.reasons });
     }
