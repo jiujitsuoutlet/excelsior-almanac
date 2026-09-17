@@ -1,14 +1,9 @@
-// ALMANAC publisher Worker (skeleton). Deliberately unwired: no Cron Trigger
-// in `wrangler.toml`, and `runPublishCycle` is never called from a live
-// handler in this file. Wiring it is a separate, founder-gated step, decided
-// after this skeleton, its tests, and its own verification script are
-// reviewed on their own pull request... same discipline the scout skeleton
-// shipped under (see scout/src/index.js).
-//
-// The app-side receiving function (`almanac-ingest`, in
-// `jiujitsuoutlet/excelsior-master`) does not exist yet. This Worker cannot
-// be turned on until it does; see ARCHITECTURE.md Section 11 for the
-// app-side prerequisite and its exact spec.
+// ALMANAC publisher Worker. `almanac-ingest` (jiujitsuoutlet/excelsior-master
+// PR #103) is deployed and its shared secret is set on both sides
+// (2026-09-16). `PUBLISHER_ENABLED` is the kill switch, checked first in
+// `scheduled` below, same pattern as `scout/src/index.js`'s `SCOUT_ENABLED`
+// check: flipping it back to "false" and redeploying stops the pipe without
+// touching any other code, faster than rotating the secret.
 
 import { buildBatch, canonicalize, MAX_BATCH_ROWS } from './payload.js';
 import { sign } from './sign.js';
@@ -61,9 +56,22 @@ export async function runPublishCycle(deps) {
 }
 
 export default {
-  async scheduled(_event, _env, _ctx) {
-    // Nothing calls runPublishCycle here yet. The app-side function this
-    // Worker depends on does not exist; turning this on would sign and send
-    // batches to a URL with nothing listening. See the file header.
+  async scheduled(_event, env, ctx) {
+    if (env.PUBLISHER_ENABLED !== 'true') {
+      console.log('publisher: PUBLISHER_ENABLED is not "true"; refusing to run.');
+      return;
+    }
+    const run = runPublishCycle({
+      db: env.DB,
+      fetchFn: fetch,
+      secret: env.ALMANAC_PUBLISH_SECRET,
+      appIngestUrl: env.APP_INGEST_URL,
+      now: () => Date.now(),
+    }).then((result) => {
+      console.log(JSON.stringify({ event: 'publish_cycle', ...result }));
+      return result;
+    });
+    if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(run);
+    else await run;
   },
 };

@@ -1,25 +1,25 @@
-# ALMANAC publisher Worker configuration (skeleton).
+# ALMANAC publisher Worker configuration.
 #
-# Deliberately no [triggers] section: nothing in this repository schedules
-# this Worker. Wiring a Cron Trigger, and setting the app ingest URL and the
-# shared signing secret, are separate, founder-gated steps, decided after
-# this skeleton, its tests, and its own verification script are reviewed on
-# their own pull request... and after the app-side `almanac-ingest` function
-# exists (ARCHITECTURE.md Section 11). The same discipline the scout
-# skeleton shipped under (see scout/wrangler.toml).
+# almanac-ingest (jiujitsuoutlet/excelsior-master PR #103) is deployed to
+# pvqdyqquugxkypvrbwhs and its shared secret is set on both sides
+# (2026-09-16, founder-approved). PUBLISHER_ENABLED="true" plus the
+# [triggers] cron below turn this pipe on for real, every 10 minutes,
+# matching ARCHITECTURE.md Section 9's stated cadence.
 #
-# Identifiers only; no secrets here (hold 1). Same Cloudflare account as the
-# console and the rest of ALMANAC (MAD v2.55).
+# Identifiers only; no secrets here (hold 1). ALMANAC_PUBLISH_SECRET is set
+# via `wrangler secret put`, never written to this file. Same Cloudflare
+# account as the console and the rest of ALMANAC (MAD v2.55).
 name = "almanac-publisher"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
 account_id = "bbe6d5f6cc43632eafdd5ef854f48a25"
 
+[triggers]
+crons = ["*/10 * * * *"]
+
 [vars]
-# Nothing sets this to "true" anywhere in this repository. See src/index.js.
-PUBLISHER_ENABLED = "false"
-# Placeholder; the app repo's URL, filled in when almanac-ingest is deployed.
-APP_INGEST_URL = ""
+PUBLISHER_ENABLED = "true"
+APP_INGEST_URL = "https://pvqdyqquugxkypvrbwhs.supabase.co/functions/v1/almanac-ingest"
 
 [[d1_databases]]
 binding = "DB"

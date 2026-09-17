@@ -189,7 +189,7 @@ The publisher sends signed batches (an HMAC over the payload and a timestamp; ol
    - Apply the batch through one service-role-only Postgres function, in a single transaction: `UPSERT` by `almanac_id` (insert if new, `UPDATE` the content columns and `status` if existing). The `UPDATE` path must be a real `UPDATE` statement against `tournaments`, not a delete-and-reinsert, so the existing `tournaments_demote_on_edit` trigger fires exactly as it does for a human-edited row... an ALMANAC-sourced edit to an already-approved row demotes it to `needs_review` the same as any other edit, which is correct: a changed date or link on a live row should get a human's eyes before a member sees the new version, not skip review because a machine made the change.
    - Never accept a request whose `almanac_id` values do not all begin with a recognizable ALMANAC id shape, and never accept a write from anything but this one function's own service-role client... the existing `tournaments_member_read` RLS policy and the base GRANTs already refuse every other path, this function only needs to not become a second one.
 
-**Sync proven** means all seven of these hold, first on the app's staging project and then on the live project:
+**Sync proven** means all seven of these hold, first on `ecronfxsaoilagcwvfyw` (the app's actually-empty rehearsal project, confirmed 2026-09-16 by row count, not by its dashboard name) and then on `pvqdyqquugxkypvrbwhs` (the project that despite being dashboard-labeled "excelsior-staging" holds every real member row and serves the live app; see `docs/ENVIRONMENTS.md` in `excelsior-master`, MAD v2.26):
 
 1. An approved ALMANAC row appears byte-identical in the app with its `almanac_id`.
 2. A member session reads it in Fire.

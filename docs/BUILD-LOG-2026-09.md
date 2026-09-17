@@ -113,7 +113,7 @@ not fail.
   steps in the ratified sequence.
 - **ORACLE** folded into the guardian as the Origin node rather than a
   separate slice.
-- **The app's staging Supabase project** stays until the founder moves it.
+- **The app's Supabase project layout** stays until the founder moves it: `pvqdyqquugxkypvrbwhs` holds every real member row and serves the live app despite its dashboard label "excelsior-staging"; `ecronfxsaoilagcwvfyw`, dashboard-labeled "excelsior-production," is the one that's actually empty and safe to rehearse against (confirmed by row count 2026-09-16; see `docs/ENVIRONMENTS.md` in `excelsior-master`, MAD v2.26). Dashboard names are not authoritative anywhere in this build.
 
 ### Evidence index
 
