@@ -10,13 +10,16 @@ workers_dev = true
 [assets]
 directory = "./public"
 
-# Production. Not deployed yet; ACCESS_AUD is filled in when the Access
-# application exists. With ACCESS_AUD empty, production refuses every request.
+# Production. Deployed 2026-09-17 behind Cloudflare Access: identity
+# provider GitHub (tested, "Your connection works!"), application "ALMANAC
+# Console" at almanac-console.paul-tokgozoglu.workers.dev, policy
+# "Reviewers" (Allow, the three emails seeded in the reviewers table),
+# accept-all-identity-providers off, session 7 days.
 [vars]
 ENVIRONMENT = "production"
 ACCESS_TEAM_DOMAIN = "jiujitsuoutlet.cloudflareaccess.com"
-ACCESS_AUD = ""
-PUBLISH_CONNECTED = "false"
+ACCESS_AUD = "b871e2d544815b6d78bbde0b55cddc72d708044d570f4ea2502fdf73fb7c1c3b"
+PUBLISH_CONNECTED = "true"
 
 [[d1_databases]]
 binding = "DB"
