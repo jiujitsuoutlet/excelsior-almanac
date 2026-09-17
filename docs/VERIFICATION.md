@@ -26,7 +26,7 @@ fail gets rewritten, not reported.
 **Wherever a hand-written list mirrors what the system actually does, that is
 where the next false pass hides.**
 
-Three times in this build a test was checking an assumption rather than the
+Four times in this build a test was checking an assumption rather than the
 code, and every one had the same shape ... something typed by hand standing
 in for something the system does:
 
@@ -38,6 +38,20 @@ in for something the system does:
    did not exist.
 3. The parser battery built its database inserts from a hand-typed column
    list, so a parser that approved its own rows still scored 18 of 18.
+4. `almanac-ingest` (`jiujitsuoutlet/excelsior-master`) validated and
+   upserted a row by a field it called `row.id`. `payload.js`'s real wire
+   format has no `id` field ... it sends `almanac_id`, matching the app's
+   own column name. Every publish cycle for a full night was refused
+   (`400 invalid_row: missing id`), never landing, never alerting anyone,
+   because nothing had ever sent the app function `payload.js`'s ACTUAL
+   output... every prior review and test checked a hand-written stand-in
+   payload against the app function, or checked `payload.js` in isolation
+   against fakes, never the two for real, against each other. Fixed by
+   `row.id` → `row.almanac_id` at all five sites (`almanac-ingest/index.ts`
+   lines 48, 50, 54, 57, 60, 140 ... line 140 mattered most: the upsert
+   mapping itself, which would have written `almanac_id: undefined` into
+   every accepted row even past validation, corrupting the exact conflict
+   target the whole pipe upserts by).
 
 The rule that follows: when two places describe one rule, one of them must
 READ the other. Where that is impossible (the terms review records prose a
@@ -45,12 +59,28 @@ machine cannot turn into a URL), say so in the gap list and prove the
 opposite guarantee instead ... a narrow allow-list refuses everything nobody
 thought to name.
 
+Instance 4 is a variant worth naming on its own: the two sides that had to
+agree live in separate repositories that deliberately do not import each
+other's code (ARCHITECTURE.md Section 11 ... "mirrored, not shared code").
+"One must read the other" cannot mean a source import here. It means a test
+that makes the real call: `publisher/test/app-contract.integration.mjs`
+imports `payload.js`'s real `buildBatch`/`canonicalize`, signs the result
+with the real shared secret, and POSTs it to the real deployed
+`almanac-ingest` URL, asserting a 2xx. That live round trip is the only
+thing that can "read" both sides of a contract that spans two repos on
+purpose. Proven able to fail before it was trusted to pass, same standard
+as every other break test here: run against the still-broken deployed
+function first (`400`, exit 1), then again after the fix was deployed
+(`200 {"applied":1}`, exit 0) ... both transcripts kept, 2026-09-17.
+
 Live examples of the law in force: `scout/test/gate-drift.test.js` reads the
 migration, `scout/test/terms-drift.test.js` reads the founder's own terms
 review file, `scripts/verify-parser.sh` builds inserts from the parser's
-returned keys, and `smoothcomp.js` exports one `classifyUrl` that both the
+returned keys, `smoothcomp.js` exports one `classifyUrl` that both the
 listing parser and the fetcher call, so there is one exclusion list rather
-than two.
+than two, and `publisher/test/app-contract.integration.mjs` reads the real
+app contract over the wire, the only channel two repos that share no code
+actually agree through.
 
 ## What each battery covers, and what it does not
 
