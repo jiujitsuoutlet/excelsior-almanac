@@ -57,10 +57,28 @@ Caps Lock never turns `A` into a deliberate approval; only a held Shift does.
 
 ## Security notes
 
-- Deployed, the console sits behind Cloudflare Access (GitHub login, two-factor
-  on the GitHub account). The Worker verifies the Access token's signature,
-  issuer, audience and expiry on every request. With no Access audience set,
-  production refuses every request.
+- **Deployed 2026-09-17** at `https://almanac-console.paul-tokgozoglu.workers.dev`,
+  behind Cloudflare Access: identity provider GitHub (tested, "Your connection
+  works!"), application "ALMANAC Console", policy "Reviewers" (Allow, exactly
+  the three emails in the `reviewers` table), accept-all-identity-providers
+  off, session 7 days. Confirmed live: an unauthenticated request and a
+  request carrying a forged `Cf-Access-Jwt-Assertion` header both get a `302`
+  from Cloudflare's own edge before reaching the Worker at all. The Worker
+  also independently verifies the Access token's signature, issuer, audience
+  and expiry on every request as a second layer.
+- **Two-factor on the reviewer GitHub accounts is unverified, not confirmed.**
+  This was supposed to be checked before this deploy (per the rule below and
+  ARCHITECTURE.md Section 4), but neither the founder nor the agent could
+  actually verify it: the agent's GitHub token lacks `admin:org` (confirmed
+  by a live `404`, not assumed), and the founder was unable to check it
+  directly either. GitHub login itself is enforced and working. Whether
+  2FA is actually on for `paul.tokgozoglu@gmail.com`, `paul@jiujitsuoutlet.com`,
+  and `jujitsuoutlet@gmail.com`'s GitHub accounts is an open item, not a
+  closed one. Check `https://github.com/orgs/jiujitsuoutlet/people` directly,
+  or grant `admin:org` to the CLI session and re-check, before treating this
+  rule as satisfied.
+- Every reviewer's GitHub account is required to have two-factor authentication
+  turned on. The one-time email PIN login method stays off.
 - Locally, a dev identity stands in for Access. It works only when the console
   runs as staging, only on `localhost`, and only when started with
   `ALLOW_DEV_IDENTITY`. Production ignores it whatever its settings say.
