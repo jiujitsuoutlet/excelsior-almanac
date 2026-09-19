@@ -28,6 +28,7 @@ export async function runScoutRun({
   now = () => Date.now(),
   fetchImpl,
   loadSources,
+  loadAliases = async () => [],
   openRun,
   closeRun,
   pageCapPerHost,
@@ -42,7 +43,11 @@ export async function runScoutRun({
   const runId = await openRun({ component, region, startedAt });
 
   const sources = await loadSources();
-  const { plan, skipped } = buildPlan(sources, startedAt, { pageCapPerHost });
+  // loadAliases defaults to none, so every existing caller (and every
+  // existing test) keeps behaving exactly as before source_aliases
+  // existed: a source with no aliases crawls under its own host.
+  const aliases = await loadAliases();
+  const { plan, skipped } = buildPlan(sources, startedAt, { pageCapPerHost, aliases });
 
   let pagesFetched = 0;
   let errors = 0;
@@ -104,6 +109,16 @@ export function disabledFetch() {
 export function d1SourceLoader(db) {
   return async () => {
     const { results } = await db.prepare('SELECT * FROM sources').all();
+    return results;
+  };
+}
+
+// Only ACTIVE aliases: an alias a human hasn't finished reviewing (its own
+// robots/organizer-terms check, section 9 rules 4-5) is real data, kept for
+// the record, but never a live crawl target until it is.
+export function d1AliasLoader(db) {
+  return async () => {
+    const { results } = await db.prepare('SELECT * FROM source_aliases WHERE active = 1').all();
     return results;
   };
 }

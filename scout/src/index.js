@@ -20,7 +20,7 @@
 // defeats both gates above still cannot reach a real network fetch, because
 // the fetcher plugged into the runner is not a real fetcher in this PR.
 
-import { runScoutRun, disabledFetch, d1SourceLoader, d1RunOpener, d1RunCloser } from './run.js';
+import { runScoutRun, disabledFetch, d1SourceLoader, d1AliasLoader, d1RunOpener, d1RunCloser } from './run.js';
 
 export default {
   // The scout has no member-facing surface (MAD hold 4: "the scout is never
@@ -39,6 +39,7 @@ export default {
       fetchImpl: disabledFetch,
       now: () => Date.now(),
       loadSources: d1SourceLoader(env.DB),
+      loadAliases: d1AliasLoader(env.DB),
       openRun: d1RunOpener(env.DB),
       closeRun: d1RunCloser(env.DB),
     });
