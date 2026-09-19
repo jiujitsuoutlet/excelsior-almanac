@@ -31,3 +31,33 @@ export function nextAllowedAt(host, now, state = {}, crawlDelaySeconds = null) {
 export function recordFetch(host, at, state = {}) {
   return { ...state, [host]: at };
 }
+
+// The REAL rate limit, enforced across separate Worker invocations --
+// nextAllowedAt/recordFetch above are pure, in-memory, per-run state, and
+// cannot see what a DIFFERENT scheduled invocation of this same Worker
+// did a moment ago (each gets its own fresh memory; the founder's own
+// example is the nightly Tier 1 run and the daily link-recheck run
+// touching the same company's hosts). A real cross-run clock has to live
+// somewhere both invocations can see: `sources.last_claimed_at`
+// (migration 20260919010000), claimed with one atomic UPDATE ... WHERE.
+//
+// D1 is a single-writer SQLite database, so this single UPDATE statement
+// either claims the slot or it doesn't -- there is no read-then-write
+// window for a second, truly concurrent invocation to race into. Returns
+// true only when THIS call's UPDATE actually changed the row (D1's own
+// `meta.changes`), which happens only when no one already claimed this
+// company's clock within `minIntervalSeconds` of `now`. A caller that
+// gets false must not fetch: someone else's turn, or this same company
+// was already claimed by an earlier step in this same run.
+export async function claimRateLimitSlot(db, sourceId, now, minIntervalSeconds = MINIMUM_INTERVAL_SECONDS) {
+  const nowIso = new Date(now).toISOString();
+  const cutoffIso = new Date(now - minIntervalSeconds * 1000).toISOString();
+  const result = await db
+    .prepare(
+      `UPDATE sources SET last_claimed_at = ?1
+       WHERE id = ?2 AND (last_claimed_at IS NULL OR last_claimed_at <= ?3)`,
+    )
+    .bind(nowIso, sourceId, cutoffIso)
+    .run();
+  return result?.meta?.changes === 1;
+}

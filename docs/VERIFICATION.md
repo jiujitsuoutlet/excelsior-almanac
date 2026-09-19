@@ -549,3 +549,90 @@ Does not cover:
 - **`scripts/fetch-one.sh` end to end.** Its plan mode is exercised by the
   battery; the `--go` path has never been run, because running it is a
   founder decision and it touches a real outside host.
+
+## The real crawl: discovery, ingest, link liveness, page grounding (founder ruling, 2026-09-19)
+
+"Multi-step listing->detail fetching, rate limit enforced across parallel
+runs, link liveness, page grounding. Build it, then the single Opus pass
+reviews the whole crawl path as an outsider before the first scheduled run
+touches anyone's server."
+
+This section closes several items the list above named as unproven, and adds
+the pieces the founder asked for by name. `npm test` (scout/test/) is now
+158 tests (was 114 before this arc; `git log` for the exact prior split).
+
+- **The crawl delay ACROSS runs, and concurrency** (both named above as
+  unproven): `sources.last_claimed_at` (migration
+  `20260919010000_crawl_rate_limit_and_discovery_queue.sql`) plus
+  `limiter.js`'s new `claimRateLimitSlot(db, sourceId, now)` -- one atomic
+  `UPDATE ... WHERE` D1 statement, no read-then-write window for a second,
+  truly concurrent invocation to race into. Proven twice: a hand-written
+  fake proving the boundary logic (`scout/test/limiter.claim.test.js`, 7
+  tests, including a simulated-concurrent-callers case), and the real
+  statement run against staging D1 directly -- claim succeeds, an
+  immediate second claim for the same source fails (`changes: 0`), a claim
+  after the real interval elapses succeeds again. The two-layer design:
+  `queue.js`'s pure planner still informs a run's intended schedule from
+  best-known state, and this atomic claim is the real, final gate
+  immediately before every fetch, catching a second invocation that
+  started after the first one's plan was already built.
+- **Multi-step listing->detail fetching** (not previously attempted at
+  all): `discover.js` (phase 1: fetch each active alias's own listing
+  page, discover real event-detail links, enqueue them into the new
+  `discovered_pages` table) and `ingest.js` (phase 2: work that queue down,
+  oldest first, fetch/parse/write each detail page). Decoupled on purpose
+  -- a listing page can name more pages than one Worker invocation's time
+  and rate-limit budget can fetch, so discovery and ingest can span
+  separate runs. 13 tests (`discover.test.js`, `ingest.plan.test.js`).
+- **Page grounding** (not previously attempted): `grounding.js`'s
+  `groundPage()` refuses a redirect, a 304, a non-2xx status, a
+  suspiciously short body, a Cloudflare interstitial, or a CAPTCHA
+  challenge -- all before a single byte of it ever reaches a parser. 10
+  tests, including the explicit "a real page that merely mentions logging
+  in to register still grounds" case, so a real login MENTION is never
+  confused with a login WALL.
+- **Link liveness** (ARCHITECTURE.md section 9's "a link re-check of
+  published rows daily", not previously built): `linkcheck.js` re-fetches
+  an already-approved row's own registration link. A real 2xx, grounded
+  response confirms it live (`link_checked_at` refreshed, nothing else
+  changes). Anything else -- a 404, a redirect (fetcher.js never follows
+  one; per the brief, "an unrelated redirect is not proof of a working
+  registration page"), a challenge, a network failure -- demotes the row
+  to `needs_review` through the real `review_log` transition, never a raw
+  status flip and never an automated rejection. 7 tests.
+- **A real, trigger-respecting upsert** (found needed, not previously
+  scoped): `ingest.js`'s `planEventUpsert()` decides, purely, exactly what
+  should happen for a freshly-parsed event given what (if anything)
+  already exists -- insert-and-transition-to-needs_review if new, a
+  content update if something real changed, a demotion to `needs_review`
+  FIRST if the existing row is `approved` (its content is locked by
+  `events_approved_content_lock` until it isn't), or nothing at all beyond
+  `last_seen_at` if nothing changed. 7 pure tests
+  (`ingest.plan.test.js`), plus the full real sequence proven directly
+  against staging D1: a fresh insert lands as `draft` regardless of what
+  was inserted (the table's own trigger), the transition-to-needs_review
+  really flips `status` (not asserted, queried), approving as a real
+  reviewer really locks content (a direct UPDATE while approved is
+  refused with the schema's own error), and the demote-then-update
+  sequence really unlocks and applies the change in one batch.
+- **"One company, many hostnames" reaches the parser, not just the
+  database** (a real gap found while building this, not previously
+  named): `source_aliases` (`excelsior-almanac#17`) added the schema, but
+  `smoothcomp.js`'s `classifyUrl`/`pathAllowed` still hardcoded the bare
+  `SOURCE_HOST` -- a link on `fujibjj.smoothcomp.com` would have been
+  refused as "not on smoothcomp.com" by the very parser meant to read it.
+  Fixed: both now take an `allowedHosts`/`host` parameter (defaulting to
+  `SOURCE_HOST` alone, so every existing caller and fixture is unchanged),
+  and `toDraftRow` now derives `source_host` from the real fetched URL
+  instead of the bare constant. 7 new parser tests prove an alias host is
+  accepted, a non-reviewed one still is not, and a row correctly records
+  which real alias it came from.
+- **`scripts/fetch-one.sh` end to end, and Cloudflare Workers itself**
+  (both named above as unproven): still unproven. This crawl has real
+  code now where `disabledFetch` used to be the third inert layer
+  (`scout/src/index.js`), but `SCOUT_ENABLED` stays `false` and no Cron
+  Trigger exists in either environment -- unchanged. The founder's own
+  adversarial review of this whole path, as an outsider, is the one
+  remaining gate before either is ever flipped; this section is written
+  for that review to start from, not to assert the review already
+  happened.
