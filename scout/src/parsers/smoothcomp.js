@@ -16,7 +16,7 @@
 // match against; JSON.parse either returns data or throws, and a throw here
 // is caught and treated as "no JSON-LD found", never surfaced as a crash.
 
-import { dedupeKey, isRealDate, isHttpUrl } from '../../../console/src/lib.js';
+import { dedupeKey, isRealDate, isHttpUrl, hostOf } from '../../../console/src/lib.js';
 
 const SOURCE_HOST = 'smoothcomp.com';
 
@@ -128,7 +128,16 @@ function extractAllHrefs(html) {
 // (deciding whether a request may leave at all) call this. There is exactly
 // one exclusion list in the repository; a second copy is how a rule quietly
 // stops being enforced while the tests still pass.
-export function classifyUrl(rawUrl, { base = null } = {}) {
+// allowedHosts defaults to [SOURCE_HOST] alone, exactly the original
+// behavior every existing caller and fixture relies on. The real crawl
+// path passes the company's actual active alias hostnames (ARCHITECTURE.md
+// section 9, "one company, many hostnames": the terms review is a ruling
+// about Smoothcomp the company, not about the literal string
+// "smoothcomp.com" -- a link on an organizer's own reviewed subdomain,
+// fujibjj.smoothcomp.com, is exactly as real an event link as one on the
+// bare domain, and rejecting it here would make this parser unable to
+// read the pages it exists to read).
+export function classifyUrl(rawUrl, { base = null, allowedHosts = [SOURCE_HOST] } = {}) {
   let resolved;
   try {
     resolved = new URL(rawUrl, base ?? undefined);
@@ -138,8 +147,9 @@ export function classifyUrl(rawUrl, { base = null } = {}) {
   if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') {
     return { ok: false, reason: `not an http(s) link (${resolved.protocol})`, url: resolved };
   }
-  if (resolved.hostname.toLowerCase() !== SOURCE_HOST) {
-    return { ok: false, reason: `not on ${SOURCE_HOST}`, url: resolved };
+  const hosts = allowedHosts.map((h) => h.toLowerCase());
+  if (!hosts.includes(resolved.hostname.toLowerCase())) {
+    return { ok: false, reason: `not on ${hosts.join(', ')}`, url: resolved };
   }
   const excluded = EXCLUDED_PATH_RULES.find((rule) => rule.test(resolved.pathname));
   if (excluded) return { ok: false, reason: excluded.reason, url: resolved };
@@ -151,9 +161,12 @@ export function classifyUrl(rawUrl, { base = null } = {}) {
 
 // The shape `fetcher.js` wants: a path in, an { ok, reason } out. Kept
 // deliberately thin so the fetcher inherits the rules above rather than
-// restating them.
-export function pathAllowed(path) {
-  return classifyUrl(`https://${SOURCE_HOST}${path}`);
+// restating them. `host` defaults to SOURCE_HOST for every existing
+// caller; the real crawl path passes the specific alias host it is
+// actually about to fetch from, so a path is judged against the host it
+// will really be requested on.
+export function pathAllowed(path, { host = SOURCE_HOST } = {}) {
+  return classifyUrl(`https://${host}${path}`, { allowedHosts: [host] });
 }
 
 // ---- listing pages ----
@@ -163,14 +176,14 @@ export function pathAllowed(path) {
 // other link found, each with the reason it was not kept, so a listing page
 // full of registration/bracket/athlete links proves what it excluded, not
 // just what it kept.
-export function parseListingPage(html, { url } = {}) {
+export function parseListingPage(html, { url, allowedHosts = [SOURCE_HOST] } = {}) {
   const safeHtml = typeof html === 'string' ? html : '';
   const seen = new Set();
   const eventUrls = [];
   const dropped = [];
 
   for (const raw of extractAllHrefs(safeHtml)) {
-    const verdict = classifyUrl(raw, { base: url });
+    const verdict = classifyUrl(raw, { base: url, allowedHosts });
     if (!verdict.ok) {
       dropped.push({ url: verdict.url ? verdict.url.toString() : raw, reason: verdict.reason });
       continue;
@@ -288,6 +301,13 @@ export function parseEventPage(html, { url } = {}) {
 // function never sets `approved_by`, `approved_at` or `approval_rule`, and
 // never could, since they are not in its output at all.
 //
+// source_host is derived from candidate.sourceUrl's REAL hostname, not the
+// bare SOURCE_HOST constant -- one company can have many active alias
+// hostnames (ARCHITECTURE.md section 9), and events.source_host records
+// where a row was actually found, the same field the events_source_ref
+// dedup index is keyed on. A row crawled from fujibjj.smoothcomp.com must
+// say so, not claim to be from smoothcomp.com.
+//
 // event_type is not among the facts this parser extracts (the source pages
 // carry no reliable signal for it), so every Smoothcomp row defaults to
 // 'tournament', the platform's overwhelmingly common case. This is a named
@@ -311,7 +331,7 @@ export function toDraftRow(candidate) {
     nogi: candidate.nogi ? 1 : 0,
     kids: candidate.kids ? 1 : 0,
     source_url: candidate.sourceUrl,
-    source_host: SOURCE_HOST,
+    source_host: hostOf(candidate.sourceUrl),
     source_event_ref: candidate.sourceEventRef ?? null,
     source_tier: 1,
     dedupe_key: dedupeKey({

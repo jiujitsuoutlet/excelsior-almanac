@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { parseEventPage, parseListingPage, toDraftRow, SOURCE_HOST } from '../../src/parsers/smoothcomp.js';
+import { parseEventPage, parseListingPage, toDraftRow, classifyUrl, pathAllowed, SOURCE_HOST } from '../../src/parsers/smoothcomp.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES = path.join(__dirname, '..', 'fixtures', 'smoothcomp');
@@ -207,4 +207,70 @@ test('toDraftRow never carries status or approval fields', () => {
   }
   assert.equal(row.source_tier, 1);
   assert.equal(row.source_host, 'smoothcomp.com');
+});
+
+// ---- ARCHITECTURE.md section 9: "one company, many hostnames" ----
+// The terms review is a ruling about Smoothcomp the company, not the
+// literal string "smoothcomp.com". An organizer's own reviewed
+// subdomain (fujibjj.smoothcomp.com) must be readable by this parser, or
+// the alias infrastructure (excelsior-almanac#17) has nothing real to
+// point at.
+
+test('classifyUrl defaults to SOURCE_HOST alone -- every existing caller keeps working unchanged', () => {
+  const onBareDomain = classifyUrl('https://smoothcomp.com/en/event/900001');
+  assert.equal(onBareDomain.ok, true);
+  const onAlias = classifyUrl('https://fujibjj.smoothcomp.com/en/event/900001');
+  assert.equal(onAlias.ok, false, 'without an explicit allowedHosts list, only the bare SOURCE_HOST is accepted');
+  assert.match(onAlias.reason, /not on smoothcomp\.com/);
+});
+
+test('classifyUrl accepts a real organizer alias when it is passed as an allowed host', () => {
+  const result = classifyUrl('https://fujibjj.smoothcomp.com/en/event/900001', { allowedHosts: ['fujibjj.smoothcomp.com'] });
+  assert.equal(result.ok, true);
+});
+
+test('classifyUrl still refuses an alias NOT in the allowed list -- a human approves each hostname, never a pattern', () => {
+  const result = classifyUrl('https://not-a-reviewed-alias.smoothcomp.com/en/event/900001', { allowedHosts: ['fujibjj.smoothcomp.com'] });
+  assert.equal(result.ok, false);
+});
+
+test('classifyUrl still applies the excluded-path and event-detail-shape rules on an alias host, exactly as on the bare domain', () => {
+  const scoreboard = classifyUrl('https://fujibjj.smoothcomp.com/en/event/900001/scoreboard', { allowedHosts: ['fujibjj.smoothcomp.com'] });
+  assert.equal(scoreboard.ok, false);
+  assert.match(scoreboard.reason, /scoreboard/);
+});
+
+test('pathAllowed judges a path against the specific alias host it will really be fetched from', () => {
+  const onAlias = pathAllowed('/en/event/900001', { host: 'fujibjj.smoothcomp.com' });
+  assert.equal(onAlias.ok, true);
+  assert.equal(onAlias.url.hostname, 'fujibjj.smoothcomp.com');
+  // No host argument still defaults to SOURCE_HOST, unchanged.
+  const onBareDomain = pathAllowed('/en/event/900001');
+  assert.equal(onBareDomain.url.hostname, SOURCE_HOST);
+});
+
+test('parseListingPage keeps links across every active alias when the full list is passed', () => {
+  const html = `
+    <a href="https://fujibjj.smoothcomp.com/en/event/900001/fixture-a">A</a>
+    <a href="https://classiccombat.smoothcomp.com/en/event/900002/fixture-b">B</a>
+    <a href="https://not-yet-reviewed.smoothcomp.com/en/event/900003/fixture-c">C (not an active alias)</a>
+  `;
+  const { eventUrls, dropped } = parseListingPage(html, {
+    url: 'https://fujibjj.smoothcomp.com/en/events',
+    allowedHosts: ['fujibjj.smoothcomp.com', 'classiccombat.smoothcomp.com'],
+  });
+  assert.deepEqual(eventUrls, [
+    'https://fujibjj.smoothcomp.com/en/event/900001/fixture-a',
+    'https://classiccombat.smoothcomp.com/en/event/900002/fixture-b',
+  ]);
+  assert.equal(dropped.length, 1);
+  assert.match(dropped[0].reason, /not on/);
+});
+
+test('toDraftRow records the REAL alias hostname the page was fetched from, not the bare SOURCE_HOST', () => {
+  const url = 'https://fujibjj.smoothcomp.com/en/event/900001/fixture-open-2027';
+  const parsed = parseEventPage(fixture('complete-event.html'), { url });
+  assert.equal(parsed.ok, true);
+  const row = toDraftRow(parsed.event);
+  assert.equal(row.source_host, 'fujibjj.smoothcomp.com', 'a row crawled from an alias must say so, not claim to be from smoothcomp.com');
 });
