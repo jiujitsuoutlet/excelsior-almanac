@@ -2,15 +2,21 @@
 //
 // The real crawl (founder ruling, 2026-09-19: "multi-step listing->detail
 // fetching, rate limit enforced across parallel runs, link liveness, page
-// grounding") is wired here now -- discover.js (phase 1: listing pages ->
+// grounding") is wired here now -- robotscheck.js (phase 0: daily robots
+// drift, per alias), discover.js (phase 1: listing pages ->
 // discovered_pages), ingest.js (phase 2: detail pages -> real events
 // rows, respecting every trigger the schema enforces), linkcheck.js
-// (re-verifying already-approved rows' registration links stay live).
-// This SUPERSEDES the older page_types/buildPlan single-pass model
-// (run.js/queue.js), which predates the alias architecture and the real
-// two-phase crawl; that code is left in place (still tested, still
-// working) rather than deleted, since removing it is a separate,
-// deliberate cleanup, not a side effect of this change.
+// (re-verifying already-approved rows' event pages still show a
+// registration link). This SUPERSEDES the older page_types/buildPlan
+// single-pass model (run.js/queue.js), which predates the alias
+// architecture and the real multi-phase crawl; that code is left in
+// place (still tested, still working) rather than deleted, since
+// removing it is a separate, deliberate cleanup, not a side effect of
+// this change.
+//
+// Every phase runs even when it finds nothing to do -- zero active
+// aliases (today's real state; ALMANAC has never activated one) is a
+// legitimate, fully-exercised empty run, not a skipped one.
 //
 // Still fully inert, on purpose, exactly as the original skeleton was:
 //
@@ -25,6 +31,7 @@
 // now, not decorative. The founder's own review of this whole crawl path
 // is the remaining gate before either one is ever lifted.
 
+import { runRobotsRecheck } from './robotscheck.js';
 import { runDiscovery } from './discover.js';
 import { runIngest } from './ingest.js';
 import { runLinkCheck } from './linkcheck.js';
@@ -37,27 +44,65 @@ import {
   d1ApplyUpsert,
   d1MarkPageFetched,
   d1MarkPageFailed,
+  d1RequeueStalePages,
+  d1DeactivateSource,
+  d1MarkAliasRobotsFresh,
+  d1PauseAliasForRobotsDrift,
   d1StaleApprovedLinksLoader,
   d1MarkLinkLive,
   d1DemoteDeadLink,
 } from './d1adapters.js';
 import { d1RunOpener, d1RunCloser } from './run.js';
 
+// Every crawl_runs row's `component` MUST be one of the six values the
+// table's own CHECK constraint permits (core_schema.sql); the phases this
+// crawl actually runs (robots re-check, discovery, ingest, link-check)
+// are not among them. Opus review, 2026-09-19, B4: the original code used
+// its own invented values ('scout_discovery' etc.), which the schema
+// rejected on the Worker's very first write -- runCrawlCycle had never
+// once been executed against the real schema. `region` carries the
+// specific phase name instead; it has no CHECK, and crawl_runs' own
+// purpose ("cost and error reporting") is served just as well by it.
+const TIER1_COMPONENT = 'tier1_scout';
+const LINKCHECK_COMPONENT = 'link_checker';
+
 async function runCrawlCycle(env) {
   const now = Date.now();
   const claimSlot = d1ClaimSlot(env.DB);
+  const deactivateSource = (sourceId) => d1DeactivateSource(env.DB)(sourceId);
   const openRun = d1RunOpener(env.DB);
   const closeRun = d1RunCloser(env.DB);
+  const loadActiveAliasesWithSource = d1ActiveAliasesWithSourceLoader(env.DB);
 
-  const discoveryRunId = await openRun({ component: 'scout_discovery', region: null, startedAt: now });
+  // Phase 0: robots.txt drift, per active alias, before anything else
+  // fetches a single page tonight (ARCHITECTURE.md section 9 rule 4;
+  // Opus review, 2026-09-19, B3).
+  const robotsRunId = await openRun({ component: TIER1_COMPONENT, region: 'robots_check', startedAt: now });
+  let robotsResult;
+  try {
+    robotsResult = await runRobotsRecheck({
+      now,
+      fetchImpl: fetch,
+      loadActiveAliasesWithSource,
+      markAliasRobotsFresh: d1MarkAliasRobotsFresh(env.DB),
+      pauseAliasForDrift: d1PauseAliasForRobotsDrift(env.DB),
+    });
+    await closeRun({ runId: robotsRunId, status: 'succeeded', finishedAt: Date.now(), pagesFetched: robotsResult.checked, errors: robotsResult.paused.length, hostsSkipped: robotsResult.skipped.length });
+  } catch (err) {
+    await closeRun({ runId: robotsRunId, status: 'failed', finishedAt: Date.now(), pagesFetched: 0, errors: 1, hostsSkipped: 0 });
+    throw err;
+  }
+
+  const discoveryRunId = await openRun({ component: TIER1_COMPONENT, region: 'discovery', startedAt: Date.now() });
   let discoveryResult;
   try {
     discoveryResult = await runDiscovery({
-      now,
+      now: Date.now(),
       fetchImpl: fetch,
-      loadActiveAliasesWithSource: d1ActiveAliasesWithSourceLoader(env.DB),
+      loadActiveAliasesWithSource,
       claimSlot,
       enqueueDiscovered: d1EnqueueDiscovered(env.DB),
+      deactivateSource,
     });
     await closeRun({ runId: discoveryRunId, status: 'succeeded', finishedAt: Date.now(), pagesFetched: discoveryResult.attempted, errors: discoveryResult.skipped.length, hostsSkipped: discoveryResult.skipped.length });
   } catch (err) {
@@ -65,7 +110,7 @@ async function runCrawlCycle(env) {
     throw err;
   }
 
-  const ingestRunId = await openRun({ component: 'scout_ingest', region: null, startedAt: Date.now() });
+  const ingestRunId = await openRun({ component: TIER1_COMPONENT, region: 'ingest', startedAt: Date.now() });
   let ingestResult;
   try {
     ingestResult = await runIngest({
@@ -77,6 +122,8 @@ async function runCrawlCycle(env) {
       applyUpsert: d1ApplyUpsert(env.DB),
       markPageFetched: d1MarkPageFetched(env.DB),
       markPageFailed: d1MarkPageFailed(env.DB),
+      requeueStalePages: d1RequeueStalePages(env.DB),
+      deactivateSource,
     });
     await closeRun({ runId: ingestRunId, status: 'succeeded', finishedAt: Date.now(), pagesFetched: ingestResult.fetched, errors: ingestResult.failed.length, hostsSkipped: 0 });
   } catch (err) {
@@ -84,7 +131,7 @@ async function runCrawlCycle(env) {
     throw err;
   }
 
-  const linkCheckRunId = await openRun({ component: 'scout_linkcheck', region: null, startedAt: Date.now() });
+  const linkCheckRunId = await openRun({ component: LINKCHECK_COMPONENT, region: null, startedAt: Date.now() });
   let linkCheckResult;
   try {
     linkCheckResult = await runLinkCheck({
@@ -94,6 +141,7 @@ async function runCrawlCycle(env) {
       loadStaleApprovedLinks: d1StaleApprovedLinksLoader(env.DB),
       markLinkLive: d1MarkLinkLive(env.DB),
       demoteDeadLink: d1DemoteDeadLink(env.DB),
+      deactivateSource,
     });
     await closeRun({ runId: linkCheckRunId, status: 'succeeded', finishedAt: Date.now(), pagesFetched: linkCheckResult.checked, errors: linkCheckResult.demoted, hostsSkipped: 0 });
   } catch (err) {
@@ -101,7 +149,7 @@ async function runCrawlCycle(env) {
     throw err;
   }
 
-  return { discovery: discoveryResult, ingest: ingestResult, linkCheck: linkCheckResult };
+  return { robots: robotsResult, discovery: discoveryResult, ingest: ingestResult, linkCheck: linkCheckResult };
 }
 
 export default {

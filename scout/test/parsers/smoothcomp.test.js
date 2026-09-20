@@ -142,8 +142,8 @@ test('a listing page keeps only allowed event detail links, and reports every dr
   assert.match(reasonFor('https://smoothcomp.com/en/event/900001/registrations'), /registrant list/);
   assert.match(reasonFor('https://smoothcomp.com/en/athlete/55555'), /athlete profile/);
 
-  // javascript: is neither http nor https, and is dropped, not followed.
-  assert.ok(dropped.some((d) => d.url === 'javascript:void(0)' && /not an http\(s\) link/.test(d.reason)));
+  // javascript: is not https, and is dropped, not followed.
+  assert.ok(dropped.some((d) => d.url === 'javascript:void(0)' && /only https is crawled/.test(d.reason)));
 
   // The repeated card for the same event contributes one URL, not two.
   assert.equal(eventUrls.filter((u) => u === 'https://smoothcomp.com/en/event/900001/fixture-open-2027').length, 1);
@@ -273,4 +273,56 @@ test('toDraftRow records the REAL alias hostname the page was fetched from, not 
   assert.equal(parsed.ok, true);
   const row = toDraftRow(parsed.event);
   assert.equal(row.source_host, 'fujibjj.smoothcomp.com', 'a row crawled from an alias must say so, not claim to be from smoothcomp.com');
+});
+
+// Opus review, 2026-09-19, B7: discovered_pages.url carries
+// CHECK (url LIKE 'https://%'); a plain http:// link on a real listing
+// page (ordinary -- mixed-scheme anchors are common) used to pass
+// classifyUrl, get enqueued, and blow up the whole insert batch. It must
+// now be refused at the source, the same as any other link this parser
+// declines to keep.
+test('a plain http:// link is refused, never treated as an https-equivalent', () => {
+  const verdict = classifyUrl('http://fujibjj.smoothcomp.com/en/event/900001/x', { allowedHosts: ['fujibjj.smoothcomp.com'] });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.reason, /only https is crawled/);
+});
+
+test('a listing page with a mixed http/https anchor keeps only the https one, and reports the http one as dropped, not thrown', () => {
+  const html = `<a href="http://fujibjj.smoothcomp.com/en/event/900001/x">HTTP</a><a href="https://fujibjj.smoothcomp.com/en/event/900002/y">HTTPS</a>`;
+  const { eventUrls, dropped } = parseListingPage(html, { url: 'https://fujibjj.smoothcomp.com/en/events', allowedHosts: ['fujibjj.smoothcomp.com'] });
+  assert.deepEqual(eventUrls, ['https://fujibjj.smoothcomp.com/en/event/900002/y']);
+  assert.equal(dropped.length, 1);
+  assert.match(dropped[0].reason, /only https is crawled/);
+});
+
+// Opus review, 2026-09-19, B10: WHATWG URL deliberately leaves %2F/%2E
+// encoded in .pathname, so an excluded path spelled with percent-encoding
+// used to walk straight past EXCLUDED_PATH_RULES and EVENT_DETAIL_PATH,
+// both of which only ever looked at the raw, still-encoded string.
+test('a percent-encoded /order/ path is refused, exactly as the plain path would be', () => {
+  const verdict = classifyUrl('https://fujibjj.smoothcomp.com/en/event/900001/%2e%2e%2f%2e%2e%2forder%2fx', { allowedHosts: ['fujibjj.smoothcomp.com'] });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.reason, /order\/checkout/);
+});
+
+test('a percent-encoded /brackets path is refused, exactly as the plain path would be', () => {
+  const verdict = classifyUrl('https://fujibjj.smoothcomp.com/en/event/900001/%2Fbrackets', { allowedHosts: ['fujibjj.smoothcomp.com'] });
+  assert.equal(verdict.ok, false);
+});
+
+test('an unencoded excluded path is still refused (the decode step never weakens the plain case)', () => {
+  const verdict = classifyUrl('https://fujibjj.smoothcomp.com/en/event/900001/order/x', { allowedHosts: ['fujibjj.smoothcomp.com'] });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.reason, /order\/checkout/);
+});
+
+test('a real, unencoded event detail path still passes (the decode step never over-refuses the ordinary case)', () => {
+  const verdict = classifyUrl('https://fujibjj.smoothcomp.com/en/event/900001/fixture-open-2027', { allowedHosts: ['fujibjj.smoothcomp.com'] });
+  assert.equal(verdict.ok, true);
+});
+
+test('malformed percent-encoding fails closed, never falls back to the raw string', () => {
+  const verdict = classifyUrl('https://fujibjj.smoothcomp.com/en/event/900001/%', { allowedHosts: ['fujibjj.smoothcomp.com'] });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.reason, /malformed percent-encoding/);
 });

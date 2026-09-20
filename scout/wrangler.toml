@@ -1,9 +1,26 @@
-# ALMANAC scout Worker configuration (skeleton).
+# ALMANAC scout Worker configuration.
 #
-# Deliberately no [triggers] section: nothing in this repository schedules
-# this Worker. Wiring a Cron Trigger is a separate, founder-gated step
-# (see src/index.js), decided after this skeleton, its tests and its
-# batteries are reviewed on their own pull request.
+# Production: deliberately no [triggers] section, and SCOUT_ENABLED stays
+# "false" below. The standing "production stays untouched until the one
+# gate" rule (this program's own rule, reconfirmed 2026-09-19) covers this
+# environment; only the founder's own explicit, separate word moves it,
+# never a side effect of any other change (see src/index.js).
+#
+# Staging: authorized 2026-09-19, after the Opus adversarial review of the
+# whole crawl path closed all twelve blocking findings it raised (see
+# docs/VERIFICATION.md). A real nightly Cron Trigger below, matching
+# ARCHITECTURE.md section 9's documented Tier 1 window (America/Chicago
+# 02:00-05:00; Cron Triggers are UTC, and Workers has no DST-aware cron,
+# so 07:00 UTC is 02:00 Chicago during CDT, the window's own start time --
+# revisit this UTC offset each November/March). One cron fires the whole
+# cycle (robots re-check, discovery, ingest, link-check) in sequence,
+# rather than ARCHITECTURE's separately-timed robots/link-check windows --
+# a deliberate v1 simplification, named here rather than silently
+# deviating from the documented schedule. Today (2026-09-19) zero
+# source_aliases rows exist in any environment, so this cron finds
+# nothing to fetch until a human activates one (ARCHITECTURE.md section 9
+# rule 5) -- see docs/VERIFICATION.md for the honest account of what this
+# authorizes and what it does not.
 #
 # Identifiers only; no secrets here (hold 1). Same Cloudflare account as the
 # console and the rest of ALMANAC (MAD v2.55).
@@ -13,7 +30,7 @@ compatibility_date = "2026-09-01"
 account_id = "bbe6d5f6cc43632eafdd5ef854f48a25"
 
 [vars]
-# Nothing sets this to "true" anywhere in this repository. See src/index.js.
+# Nothing sets this to "true" for production anywhere in this repository. See src/index.js.
 SCOUT_ENABLED = "false"
 
 [[d1_databases]]
@@ -27,7 +44,10 @@ migrations_dir = "../migrations"
 name = "almanac-scout-staging"
 
 [env.staging.vars]
-SCOUT_ENABLED = "false"
+SCOUT_ENABLED = "true"
+
+[env.staging.triggers]
+crons = ["0 7 * * *"]
 
 [[env.staging.d1_databases]]
 binding = "DB"

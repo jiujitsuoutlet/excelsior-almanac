@@ -17,9 +17,24 @@
 // exactly like a re-crawl finding real content changes -- it never
 // silently stays approved on unproven grounds, and it never gets
 // rejected outright on an automated guess either.
+//
+// Re-fetches the event's SOURCE_URL (the event detail page), never
+// registration_url directly (Opus review, 2026-09-19, B1/B9): a
+// registration_url is typically an /order/ or /checkout path -- exactly
+// the page type the terms review says to never fetch, and fetching it
+// here for a "liveness" check was itself a terms-review violation, not
+// just a false-positive risk. The event detail page is always an
+// EVENT_DETAIL_PATH page (the one type this crawl is reviewed to
+// re-touch); the check re-parses it and confirms a registration link is
+// still present, which is the real liveness signal without ever
+// requesting the registration/checkout flow itself.
 
+import { checkSource } from './gate.js';
 import { groundPage } from './grounding.js';
 import { fetchOnce, FetchRefused } from './fetcher.js';
+import * as smoothcomp from './parsers/smoothcomp.js';
+
+export const PARSERS = { 'src-smoothcomp': smoothcomp };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -27,15 +42,16 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * @param {object} deps
  * @param {number} deps.now
  * @param {Function} deps.fetchImpl
- * @param {Function} deps.claimSlot - async (sourceId, now) => boolean; only
+ * @param {Function} deps.claimSlot - async (source) => boolean; only
  *   called for a link whose host is a known, reviewed alias/source (see
  *   loadStaleApprovedLinks below) -- a link on an unreviewed host is
  *   never fetched at all, live-checked or otherwise.
  * @param {Function} deps.loadStaleApprovedLinks - async (staleBeforeIso) =>
- *   Array<{ id, registrationUrl, host, sourceId, source: <sources row> }>,
+ *   Array<{ id, sourceUrl, host, sourceId, source: <sources row> }>,
  *   already filtered to links whose host matches a reviewed source/alias.
  * @param {Function} deps.markLinkLive - async (eventId, nowIso) => void
  * @param {Function} deps.demoteDeadLink - async (eventId, nowIso, reason, actor) => void
+ * @param {Function} [deps.deactivateSource] - async (sourceId, reason) => void
  * @param {number} [deps.staleAfterMs]
  * @param {number} [deps.maxChecks]
  */
@@ -46,6 +62,7 @@ export async function runLinkCheck({
   loadStaleApprovedLinks,
   markLinkLive,
   demoteDeadLink,
+  deactivateSource = async () => {},
   staleAfterMs = DAY_MS,
   maxChecks = 50,
 }) {
@@ -61,10 +78,32 @@ export async function runLinkCheck({
   let demoted = 0;
   const skipped = [];
   const nowIso = new Date(now).toISOString();
+  // Same per-run backoff discipline as discover.js/ingest.js (Opus
+  // review, 2026-09-19, B12).
+  const backedOff = new Set();
 
   for (const link of links) {
+    // The terms-review gate, same check discover.js/ingest.js already
+    // make (Opus review, 2026-09-19, B2): link-check never had this at
+    // all, so setting a source inactive to stop crawling it left the
+    // daily re-check still hitting the host forever.
+    const gate = checkSource(link.source);
+    if (!gate.allowed) {
+      skipped.push({ id: link.id, reason: gate.reason });
+      continue;
+    }
+    const parser = PARSERS[link.source.id];
+    if (!parser) {
+      skipped.push({ id: link.id, reason: `no parser registered for source ${link.source.id}` });
+      continue;
+    }
+    if (backedOff.has(link.source.id)) {
+      skipped.push({ id: link.id, reason: 'this company backed off earlier in this same run; not tried again tonight' });
+      continue;
+    }
+
     // eslint-disable-next-line no-await-in-loop -- one company's clock at a time, same discipline as discovery/ingest
-    const claimed = await claimSlot(link.sourceId, now);
+    const claimed = await claimSlot(link.source, now);
     if (!claimed) {
       skipped.push({ id: link.id, reason: 'rate limit slot already claimed' });
       continue;
@@ -73,8 +112,19 @@ export async function runLinkCheck({
     let response;
     let refusalReason = null;
     try {
+      // Re-checks the EVENT DETAIL page (source_url), never the
+      // registration_url directly (B1/B9): a registration_url is
+      // typically an excluded /order/ path, and fetching it here was
+      // both a terms-review violation and, when it pointed off-host, a
+      // false "dead link" demotion caused by our own allowlist refusal
+      // rather than any real evidence.
       // eslint-disable-next-line no-await-in-loop
-      response = await fetchOnce(link.registrationUrl, { fetchImpl, allowHost: link.host, now: () => now });
+      response = await fetchOnce(link.sourceUrl, {
+        fetchImpl,
+        allowHost: link.host,
+        pathAllowed: (p) => parser.pathAllowed(p, { host: link.host }),
+        now: () => now,
+      });
     } catch (err) {
       refusalReason = err instanceof FetchRefused ? `fetch refused: ${err.message}` : `fetch failed: ${err?.message ?? err}`;
     }
@@ -87,14 +137,38 @@ export async function runLinkCheck({
       continue;
     }
 
+    if (response.status === 403) {
+      backedOff.add(link.source.id);
+      skipped.push({ id: link.id, reason: 'http 403; the host said no -- this source is being paused for human review, not retried' });
+      // eslint-disable-next-line no-await-in-loop
+      await deactivateSource(link.source.id, `link-check got http 403 from ${link.host}`);
+      continue;
+    }
+    if (response.status === 429 || response.status === 503) {
+      backedOff.add(link.source.id);
+      skipped.push({ id: link.id, reason: `http ${response.status}; backing off this company for the rest of tonight's run` });
+      continue;
+    }
+
     const grounding = groundPage(response);
-    if (grounding.grounded) {
+    if (!grounding.grounded) {
+      // eslint-disable-next-line no-await-in-loop
+      await demoteDeadLink(link.id, nowIso, `event page no longer grounds: ${grounding.reason}`, 'system:scout-linkcheck');
+      demoted += 1;
+      continue;
+    }
+
+    const parsed = parser.parseEventPage(response.body, { url: link.sourceUrl });
+    if (parsed.ok && parsed.event.registrationUrl) {
       // eslint-disable-next-line no-await-in-loop
       await markLinkLive(link.id, nowIso);
       confirmedLive += 1;
     } else {
+      const reason = parsed.ok
+        ? 'the event page no longer shows a registration link'
+        : `the event page no longer parses: ${parsed.reason}`;
       // eslint-disable-next-line no-await-in-loop
-      await demoteDeadLink(link.id, nowIso, `registration link no longer grounds: ${grounding.reason}`, 'system:scout-linkcheck');
+      await demoteDeadLink(link.id, nowIso, reason, 'system:scout-linkcheck');
       demoted += 1;
     }
   }

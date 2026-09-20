@@ -145,6 +145,61 @@ test('one alias\'s failure does not stop the others in the same run', async () =
   assert.equal(enqueued[0].host, 'fujibjj.smoothcomp.com');
 });
 
+test('a 403 pauses the source and is never treated as an ordinary skip -- deactivateSource is called', async () => {
+  const alias = { aliasId: 'a1', host: 'fujibjj.smoothcomp.com', listingPath: '/', source: ALLOWED_SOURCE };
+  const { fetchImpl } = fakeFetch({ 'https://fujibjj.smoothcomp.com/': { status: 403, body: 'forbidden' } });
+  const { claimSlot } = fakeClaimAlwaysGrants();
+  const deactivated = [];
+  const result = await runDiscovery({
+    now: 1_000_000,
+    fetchImpl,
+    loadActiveAliasesWithSource: async () => [alias],
+    claimSlot,
+    enqueueDiscovered: async () => { throw new Error('must never be called'); },
+    deactivateSource: async (sourceId, reason) => deactivated.push({ sourceId, reason }),
+  });
+  assert.equal(deactivated.length, 1);
+  assert.equal(deactivated[0].sourceId, 'src-smoothcomp');
+  assert.deepEqual(result.deactivated, ['src-smoothcomp']);
+  assert.match(result.skipped[0].reason, /403/);
+});
+
+test('a second alias of the same 403\'d company is skipped without another fetch, in the same run', async () => {
+  const aliasOne = { aliasId: 'a1', host: 'fujibjj.smoothcomp.com', listingPath: '/', source: ALLOWED_SOURCE };
+  const aliasTwo = { aliasId: 'a2', host: 'nuway.smoothcomp.com', listingPath: '/', source: ALLOWED_SOURCE };
+  const { fetchImpl, calls } = fakeFetch({ 'https://fujibjj.smoothcomp.com/': { status: 403, body: 'forbidden' } });
+  const { claimSlot } = fakeClaimAlwaysGrants();
+  const result = await runDiscovery({
+    now: 1_000_000,
+    fetchImpl,
+    loadActiveAliasesWithSource: async () => [aliasOne, aliasTwo],
+    claimSlot,
+    enqueueDiscovered: async () => { throw new Error('must never be called'); },
+    deactivateSource: async () => {},
+  });
+  assert.equal(calls.length, 1, 'the second alias of the same company is never fetched once the company has 403\'d this run');
+  assert.equal(result.skipped.length, 2);
+  assert.match(result.skipped[1].reason, /backed off earlier in this same run/);
+});
+
+test('a 429 backs off the company for the rest of this run, but does not deactivate it', async () => {
+  const alias = { aliasId: 'a1', host: 'fujibjj.smoothcomp.com', listingPath: '/', source: ALLOWED_SOURCE };
+  const { fetchImpl } = fakeFetch({ 'https://fujibjj.smoothcomp.com/': { status: 429, body: 'slow down' } });
+  const { claimSlot } = fakeClaimAlwaysGrants();
+  const deactivated = [];
+  const result = await runDiscovery({
+    now: 1_000_000,
+    fetchImpl,
+    loadActiveAliasesWithSource: async () => [alias],
+    claimSlot,
+    enqueueDiscovered: async () => { throw new Error('must never be called'); },
+    deactivateSource: async (sourceId, reason) => deactivated.push({ sourceId, reason }),
+  });
+  assert.equal(deactivated.length, 0);
+  assert.deepEqual(result.deactivated, []);
+  assert.match(result.skipped[0].reason, /429/);
+});
+
 test('every discovered url is real (dedup already handled inside parseListingPage), and each alias fetch is judged against its own host, not a hardcoded one', async () => {
   const alias = { aliasId: 'a1', host: 'classiccombat.smoothcomp.com', listingPath: '/en/events', source: ALLOWED_SOURCE };
   const html = `<a href="https://classiccombat.smoothcomp.com/en/event/1/x">X</a><a href="https://classiccombat.smoothcomp.com/en/event/1/x">X again (dup)</a>`;

@@ -27,15 +27,20 @@ export const PARSERS = { 'src-smoothcomp': smoothcomp };
  *   fetch or an injected fake, matching fetcher.js's own convention.
  * @param {Function} deps.loadActiveAliasesWithSource - async () => Array<{
  *   aliasId, host, listingPath, source: <a full `sources` row> }>
- * @param {Function} deps.claimSlot - async (sourceId, now) => boolean,
- *   limiter.js's claimRateLimitSlot bound to a real db.
+ * @param {Function} deps.claimSlot - async (source) => boolean, the full
+ *   `sources` row (its own real Crawl-delay lives on it) bound to a real db.
  * @param {Function} deps.enqueueDiscovered - async ({ sourceId, host, urls }) => void
  * @param {Function} [deps.recordSkip] - (host, reason) => void, optional
  *   observability hook; discovery does not fail a whole run over one
  *   host's own refusal.
- * @returns {Promise<{ attempted: number, discovered: number, skipped: Array<{host:string, reason:string}> }>}
+ * @param {Function} [deps.deactivateSource] - async (sourceId, reason) =>
+ *   void, called on an explicit 403: per the terms review, a 403 is an
+ *   answer that stops that host, not a page to retry tomorrow (Opus
+ *   review, 2026-09-19, B12). Defaults to a no-op only for callers (tests)
+ *   that don't care; the real crawl always wires this to a real pause.
+ * @returns {Promise<{ attempted: number, discovered: number, skipped: Array<{host:string, reason:string}>, deactivated: string[] }>}
  */
-export async function runDiscovery({ now, fetchImpl, loadActiveAliasesWithSource, claimSlot, enqueueDiscovered, recordSkip = () => {} }) {
+export async function runDiscovery({ now, fetchImpl, loadActiveAliasesWithSource, claimSlot, enqueueDiscovered, recordSkip = () => {}, deactivateSource = async () => {} }) {
   if (typeof fetchImpl !== 'function') throw new Error('runDiscovery requires an injected fetchImpl');
   if (typeof loadActiveAliasesWithSource !== 'function') throw new Error('runDiscovery requires loadActiveAliasesWithSource');
   if (typeof claimSlot !== 'function') throw new Error('runDiscovery requires claimSlot');
@@ -45,6 +50,14 @@ export async function runDiscovery({ now, fetchImpl, loadActiveAliasesWithSource
   let attempted = 0;
   let discovered = 0;
   const skipped = [];
+  const deactivated = [];
+  // Per-company, for this run only: a 403/429/503 from one alias is a
+  // signal about the COMPANY (section 9's shared clock is per-company for
+  // the same reason), so the next alias of the same company is not hit
+  // again a moment later (Opus review, 2026-09-19, B12). Reset every
+  // invocation -- a fresh night gets a fresh chance, except a 403, which
+  // deactivateSource makes durable across runs too.
+  const backedOff = new Set();
 
   // All active aliases of the same source, needed so parseListingPage
   // accepts a link to ANY of the company's reviewed subdomains, not just
@@ -66,8 +79,13 @@ export async function runDiscovery({ now, fetchImpl, loadActiveAliasesWithSource
       continue;
     }
 
+    if (backedOff.has(alias.source.id)) {
+      skipped.push({ host: alias.host, reason: 'this company backed off earlier in this same run; not tried again tonight' });
+      continue;
+    }
+
     // eslint-disable-next-line no-await-in-loop -- one company's clock at a time, on purpose
-    const claimed = await claimSlot(alias.source.id, now);
+    const claimed = await claimSlot(alias.source, now);
     if (!claimed) {
       skipped.push({ host: alias.host, reason: 'rate limit slot already claimed (by this run or a concurrent one)' });
       continue;
@@ -96,6 +114,20 @@ export async function runDiscovery({ now, fetchImpl, loadActiveAliasesWithSource
       continue;
     }
 
+    if (response.status === 403) {
+      backedOff.add(alias.source.id);
+      deactivated.push(alias.source.id);
+      skipped.push({ host: alias.host, reason: 'http 403; the host said no -- this source is being paused for human review, not retried' });
+      // eslint-disable-next-line no-await-in-loop
+      await deactivateSource(alias.source.id, `discovery got http 403 from ${alias.host}`);
+      continue;
+    }
+    if (response.status === 429 || response.status === 503) {
+      backedOff.add(alias.source.id);
+      skipped.push({ host: alias.host, reason: `http ${response.status}; backing off this company for the rest of tonight's run` });
+      continue;
+    }
+
     const grounding = groundPage(response);
     if (!grounding.grounded) {
       skipped.push({ host: alias.host, reason: `listing page not grounded: ${grounding.reason}` });
@@ -113,5 +145,5 @@ export async function runDiscovery({ now, fetchImpl, loadActiveAliasesWithSource
     }
   }
 
-  return { attempted, discovered, skipped };
+  return { attempted, discovered, skipped, deactivated };
 }

@@ -1,24 +1,27 @@
 #!/usr/bin/env bash
-# ALMANAC scout integration battery. Runs against a THROWAWAY LOCAL D1
-# (never Cloudflare, never a remote database), reusing the console's own
-# test environment (console/wrangler.toml --env test) since the scout reads
-# the same `sources` and `crawl_runs` tables the console already migrates.
+# ALMANAC scout integration battery, rewritten 2026-09-19 for the real
+# multi-phase crawl (robots re-check -> discovery -> ingest -> link-check)
+# that superseded the old disabledFetch skeleton this script used to
+# verify. The Opus adversarial review (2026-09-19) found that the
+# skeleton-era version of this script had never been re-run against the
+# rewrite: `runCrawlCycle`'s very first database write used component
+# values ('scout_discovery' etc.) the crawl_runs table's own CHECK
+# constraint rejects, so the real Worker entry point had never actually
+# executed against the real schema even once. This script now proves it
+# does, on the actual `scheduled()` handler, against a fresh migration
+# apply, with SCOUT_ENABLED honored exactly as production would.
 #
-# The hard rule this battery exists to prove: the scout skeleton must not
-# fetch anything, ever, in this pull request. It proves that in two layers:
-#
-#   Phase A (pure logic, no D1, no Worker): real rows are read out of a real
-#   `sources` table and handed to scout/src/gate.js and scout/src/queue.js
-#   directly, in a plain Node process. Neither module has a fetch parameter
-#   at all, so a call counter that starts at 0 and is never touched is the
-#   proof: refusals are decided, and a plan is built, before any fetch could
-#   ever be attempted.
-#
-#   Phase B (the real Worker, via `wrangler dev --test-scheduled`): the same
-#   rows drive one real scout run through scout/src/index.js. The one
-#   allowed host reaches the injected fetcher, which throws by design in
-#   this skeleton (see scout/src/run.js's disabledFetch), so the run fails
-#   loudly and `crawl_runs` records the failure and the skipped-host count.
+# Runs against a THROWAWAY LOCAL D1 only (never Cloudflare, never a
+# remote database). Today's REAL state (checked directly against
+# staging/production before this rewrite) is zero active source_aliases
+# anywhere -- no organizer subdomain has been through the human
+# terms-review step ARCHITECTURE.md section 9 rule 5 requires. This
+# script seeds exactly that real shape (one fully-reviewed, active
+# source; zero active aliases) rather than a synthetic best case, so a
+# green run here is an honest proof of what the first real scheduled run
+# will actually do: nothing fails, four crawl_runs rows close out
+# 'succeeded' with real, valid component values, and every count is
+# honestly zero because there is nothing yet to crawl.
 #
 #   bash scripts/verify-scout.sh
 
@@ -48,88 +51,41 @@ d1() { # command
     bad "setup step failed: $1"; echo "$out" | tail -5
   fi
 }
-d1json() { # command -> file
+d1json() { # command -> stdout (json)
   "${WR[@]}" d1 execute "$DB_NAME" --local --env test --config "$CFG" --persist-to "$TMP/db" --json --command "$1" 2>/dev/null | sed -n '/^\[/,$p'
 }
 
 echo "== preparing a throwaway local D1 (migrations from migrations/, applied fresh)"
-"${WR[@]}" d1 migrations apply "$DB_NAME" --local --env test --config "$CFG" --persist-to "$TMP/db" 2>&1 | grep -E "✅|ERROR" | head -5
+"${WR[@]}" d1 migrations apply "$DB_NAME" --local --env test --config "$CFG" --persist-to "$TMP/db" 2>&1 | grep -E "✅|ERROR" | head -10
 d1 "INSERT INTO reviewers (email, role) VALUES ('$REVIEWER', 'admin')"
 
-echo "== inserting real sources rows, one per gate scenario"
-# Case 1: nothing on file at all. active defaults to 0.
-d1 "INSERT INTO sources (id, host, tier) VALUES ('src-none', 'no-review.example.com', 1)"
-
-# Case 2: a complete review, but the verdict is not_allowed. The database
-# itself would refuse active = 1 here, so active stays 0.
-d1 "INSERT INTO sources (id, host, tier, page_types, terms_url, terms_last_updated, terms_read_on, terms_automated_access, terms_reuse, login_required, official_api, excluded_paths, robots_disallowed, robots_sha256, robots_read_on, verdict, reviewed_by, reviewed_on, active)
-    VALUES ('src-notallowed', 'not-allowed.example.com', 1, '[\"events\"]', 'https://not-allowed.example.com/terms', '2026-01-01', '2026-09-01', 'none found', 'none found', 0, 'none', '[]', '[]', '$SHA64', '2026-09-01', 'not_allowed', '$REVIEWER', '2026-09-01', 0)"
-
-# Case 3: a complete review, allowing verdict, but the site requires a login.
-# The database would also refuse active = 1 here.
-d1 "INSERT INTO sources (id, host, tier, page_types, terms_url, terms_last_updated, terms_read_on, terms_automated_access, terms_reuse, login_required, official_api, excluded_paths, robots_disallowed, robots_sha256, robots_read_on, verdict, reviewed_by, reviewed_on, active)
-    VALUES ('src-login', 'login-required.example.com', 1, '[\"events\"]', 'https://login-required.example.com/terms', '2026-01-01', '2026-09-01', 'none found', 'none found', 1, 'none', '[]', '[]', '$SHA64', '2026-09-01', 'allowed', '$REVIEWER', '2026-09-01', 0)"
-
-# Case 4: a complete review, allowing verdict, no login, and active. One page
-# type, so exactly one plan entry (and one fetch attempt) is unambiguous.
-d1 "INSERT INTO sources (id, host, tier, page_types, terms_url, terms_last_updated, terms_read_on, terms_automated_access, terms_reuse, login_required, official_api, excluded_paths, robots_disallowed, robots_sha256, robots_read_on, verdict, reviewed_by, reviewed_on, active)
-    VALUES ('src-allowed', 'allowed.example.com', 1, '[\"events\"]', 'https://allowed.example.com/terms', '2026-01-01', '2026-09-01', 'none found', 'none found', 0, 'none', '[]', '[]', '$SHA64', '2026-09-01', 'allowed', '$REVIEWER', '2026-09-01', 1)"
+echo "== seeding today's REAL shape: one fully-reviewed, active Tier 1 source, ZERO active aliases"
+d1 "INSERT INTO sources (id, host, tier, page_types, terms_url, terms_last_updated, terms_read_on, terms_automated_access, terms_reuse, login_required, official_api, excluded_paths, robots_disallowed, robots_crawl_delay_seconds, robots_sha256, robots_read_on, verdict, verdict_conditions, reviewed_by, reviewed_on, active)
+    VALUES ('src-smoothcomp', 'smoothcomp.com', 1, '[\"events\"]', 'https://smoothcomp.com/en/agreements', '2026-01-01', '2026-09-16', 'none found', 'none found', 0, 'none', '[]', '[]', 10, '$SHA64', '2026-09-16', 'allowed_with_conditions', 'public listing/detail pages only', '$REVIEWER', '2026-09-16', 1)"
 
 d1json "SELECT * FROM sources ORDER BY id" > "$TMP/sources.json"
 if [ ! -s "$TMP/sources.json" ]; then bad "could not read sources back from D1"; echo "== result: $PASS passed, $FAIL failed"; exit 2; fi
 
-echo "== phase A: the gate and the queue, against the real rows, with no fetch in reach"
-cat > "$TMP/plan-check.mjs" <<NODE
+echo "== phase A: the gate, against the real row, with no fetch in reach"
+cat > "$TMP/gate-check.mjs" <<NODE
 import { readFileSync } from 'node:fs';
 import { checkSource } from '$ROOT/scout/src/gate.js';
-import { buildPlan } from '$ROOT/scout/src/queue.js';
 
 const rows = JSON.parse(readFileSync(process.argv[2], 'utf8'))[0].results;
 const byHost = Object.fromEntries(rows.map((r) => [r.host, r]));
 const report = (pass, name) => console.log(JSON.stringify({ pass: Boolean(pass), name }));
 
-// A counter that would prove a fetch happened, if anything ever called it.
-// Neither checkSource nor buildPlan accepts a fetch function at all, so this
-// can only stay at 0; that is the point being proven.
-let fetchCalls = 0;
-const wouldBeAFetch = () => { fetchCalls += 1; throw new Error('unreachable in phase A'); };
-void wouldBeAFetch;
-
-const none = checkSource(byHost['no-review.example.com']);
-report(none.allowed === false && /page types to fetch/.test(none.reason) && /field 1/.test(none.reason),
-  'a host with no terms review on file is refused, naming what is missing (' + JSON.stringify(none.reason) + ')');
-
-const notAllowed = checkSource(byHost['not-allowed.example.com']);
-report(notAllowed.allowed === false && /not_allowed/.test(notAllowed.reason),
-  'a host whose verdict is not_allowed is refused (' + JSON.stringify(notAllowed.reason) + ')');
-
-const loginRequired = checkSource(byHost['login-required.example.com']);
-report(loginRequired.allowed === false && /requires a login/.test(loginRequired.reason),
-  'a host with login_required = 1 is refused (' + JSON.stringify(loginRequired.reason) + ')');
-
-const allowed = checkSource(byHost['allowed.example.com']);
-report(allowed.allowed === true, 'a host with a complete review and an allowing verdict passes the gate');
-
-const now = Date.parse('2026-09-16T00:00:00Z');
-const { plan, skipped } = buildPlan(rows, now);
-const skippedHosts = skipped.map((s) => s.host).sort();
-const planHosts = [...new Set(plan.map((p) => p.host))];
-report(
-  skippedHosts.length === 3 && skippedHosts.join(',') === ['login-required.example.com', 'no-review.example.com', 'not-allowed.example.com'].join(','),
-  'the three refused hosts are skipped, with reasons, and never enter the plan',
-);
-report(planHosts.length === 1 && planHosts[0] === 'allowed.example.com' && plan.length === 1,
-  'the one allowed host is admitted to the plan; still no fetch has happened');
-report(fetchCalls === 0, 'the injected fetcher was never called while checking or planning (call counter is 0)');
+const allowed = checkSource(byHost['smoothcomp.com']);
+report(allowed.allowed === true, 'the one seeded source passes the gate: ' + JSON.stringify(allowed));
 NODE
 while IFS= read -r line; do
   p=$(echo "$line" | jq -r '.pass' 2>/dev/null)
   n=$(echo "$line" | jq -r '.name' 2>/dev/null)
   [ -z "$n" ] && { bad "phase A produced unreadable output: $line"; continue; }
   if [ "$p" = "true" ]; then ok "$n"; else bad "$n"; fi
-done < <(node "$TMP/plan-check.mjs" "$TMP/sources.json")
+done < <(node "$TMP/gate-check.mjs" "$TMP/sources.json")
 
-echo "== phase B: the real Worker, one scout run, the disabled fetcher makes it fail loudly"
+echo "== phase B: the real Worker, one full scheduled() crawl cycle, against the real migrated schema"
 "${WR[@]}" dev scout/src/index.js --config "$CFG" --env test --local --port 18799 \
   --persist-to "$TMP/db" --var SCOUT_ENABLED:true --test-scheduled \
   --show-interactive-dev-session=false >"$TMP/scout-dev.log" 2>&1 &
@@ -144,23 +100,48 @@ if [ -z "$UP" ]; then bad "scout dev server did not start"; tail -40 "$TMP/scout
 curl -s -o /dev/null "http://localhost:18799/__scheduled"
 
 RUN_JSON=""
-for _ in $(seq 1 20); do
-  RUN_JSON=$(d1json "SELECT id, component, status, pages_fetched, errors, hosts_skipped FROM crawl_runs ORDER BY started_at DESC LIMIT 1")
-  STATUS=$(echo "$RUN_JSON" | jq -r '.[0].results[0].status // empty' 2>/dev/null)
-  if [ "$STATUS" = "failed" ] || [ "$STATUS" = "succeeded" ]; then break; fi
+for _ in $(seq 1 30); do
+  RUN_JSON=$(d1json "SELECT id, component, region, status, pages_fetched, errors, hosts_skipped, started_at FROM crawl_runs ORDER BY started_at ASC")
+  COUNT=$(echo "$RUN_JSON" | jq -r '.[0].results | length' 2>/dev/null)
+  RUNNING=$(echo "$RUN_JSON" | jq -r '[.[0].results[] | select(.status=="running")] | length' 2>/dev/null)
+  if [ "${COUNT:-0}" -ge 4 ] && [ "${RUNNING:-1}" -eq 0 ]; then break; fi
   sleep 1
 done
 
 jv() { echo "$RUN_JSON" | jq -r "$1" 2>/dev/null; }
-if [ -z "$STATUS" ]; then
-  bad "no crawl_runs row appeared (scheduled() did not run, or SCOUT_ENABLED was not honored)"
+COUNT=$(jv '.[0].results | length')
+if [ -z "$COUNT" ] || [ "$COUNT" -lt 4 ]; then
+  bad "expected 4 crawl_runs rows (robots_check, discovery, ingest, link_checker), got ${COUNT:-0}"
+  echo "$RUN_JSON"
+  tail -60 "$TMP/scout-dev.log"
 else
-  ok "crawl_runs records the run (component: $(jv '.[0].results[0].component'))"
-  [ "$(jv '.[0].results[0].hosts_skipped')" = "3" ] && ok "crawl_runs counts the three gate-refused hosts as skipped" || bad "hosts_skipped was $(jv '.[0].results[0].hosts_skipped'), wanted 3"
-  [ "$(jv '.[0].results[0].pages_fetched')" = "0" ] && ok "crawl_runs shows zero pages actually fetched (the fetcher always throws)" || bad "pages_fetched was $(jv '.[0].results[0].pages_fetched'), wanted 0"
-  [ "$(jv '.[0].results[0].errors')" = "1" ] && ok "crawl_runs counts the one attempted, failed fetch as an error" || bad "errors was $(jv '.[0].results[0].errors'), wanted 1"
-  [ "$STATUS" = "failed" ] && ok "the run's own status is failed, loudly, not silently succeeded" || bad "status was $STATUS, wanted failed"
+  ok "crawl_runs recorded all four phases of one real scheduled() cycle"
+  REGIONS=$(jv '[.[0].results[].region] | @csv')
+  [ "$REGIONS" = '"robots_check","discovery","ingest",' ] && ok "the four phases ran in the documented order: robots_check, discovery, ingest, link-check" \
+    || bad "phase order/regions were $REGIONS, expected robots_check,discovery,ingest,(null)"
+
+  BAD_COMPONENT=$(jv '[.[0].results[] | select((.component != "tier1_scout") and (.component != "link_checker"))] | length')
+  [ "$BAD_COMPONENT" = "0" ] && ok "every crawl_runs row used a component value the schema's own CHECK actually permits (this is exactly what B4 broke)" \
+    || bad "$BAD_COMPONENT row(s) used a component value outside the schema's CHECK -- runCrawlCycle is failing on its own first write again"
+
+  FAILED_COUNT=$(jv '[.[0].results[] | select(.status != "succeeded")] | length')
+  [ "$FAILED_COUNT" = "0" ] && ok "all four phases closed out status=succeeded -- runCrawlCycle executed end to end against the real schema without throwing" \
+    || bad "$FAILED_COUNT phase(s) did not succeed"
+
+  TOTAL_FETCHED=$(jv '[.[0].results[].pages_fetched] | add')
+  [ "$TOTAL_FETCHED" = "0" ] && ok "zero pages fetched, honestly -- today's real database has zero active aliases, so this is what the real first run looks like" \
+    || bad "expected 0 total pages_fetched with zero active aliases seeded, got $TOTAL_FETCHED"
 fi
+
+echo "== phase C: production's own two inertness gates, re-confirmed on the real config file"
+# Only the PRODUCTION section (everything before the first [env.*] table)
+# is checked here -- staging may carry its own SCOUT_ENABLED/[triggers]
+# once the founder authorizes a real staging run; production's gates are
+# the ones that may never move without his separate, explicit word.
+PROD_SECTION=$(awk '/^\[env\./{exit} {print}' scout/wrangler.toml)
+echo "$PROD_SECTION" | grep -q 'SCOUT_ENABLED = "false"' && ok "production's own SCOUT_ENABLED still defaults to false" || bad "production's own SCOUT_ENABLED default is not false"
+echo "$PROD_SECTION" | grep -q '^\[triggers\]' && bad "a [triggers] section now exists in production's own config -- a cron trigger must never appear there without the founder's own explicit, separate step" \
+  || ok "no [triggers] section exists in production's own config -- nothing schedules the production Worker"
 
 echo "== result: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -34,6 +34,19 @@ function isCloudflareWaitingRoom(body) {
   return /\bjust a moment\b/i.test(body) && /cloudflare/i.test(body);
 }
 
+// Exported so a caller reading a body grounding.js was never built for
+// (robots.txt, legitimately tiny -- see robotscheck.js) can still refuse
+// a challenge page without inheriting the byte floor below, which would
+// wrongly reject a real, short robots.txt.
+export function looksLikeChallenge(body) {
+  const text = typeof body === 'string' ? body : '';
+  for (const { pattern, reason } of CHALLENGE_SIGNATURES) {
+    if (pattern.test(text)) return { challenged: true, reason };
+  }
+  if (isCloudflareWaitingRoom(text)) return { challenged: true, reason: 'Cloudflare "Just a moment..." interstitial' };
+  return { challenged: false };
+}
+
 // A real page has real markup; an interstitial or a bare error stub is
 // typically far shorter than any genuine listing or event detail page.
 // This floor is deliberately low (a real generous margin below the
