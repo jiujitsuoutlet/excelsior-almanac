@@ -636,3 +636,124 @@ the pieces the founder asked for by name. `npm test` (scout/test/) is now
   remaining gate before either is ever flipped; this section is written
   for that review to start from, not to assert the review already
   happened.
+
+## The Opus adversarial review, and what it found (founder ruling, 2026-09-19)
+
+The review above happened. Verdict: **not safe to enable, twelve blocking
+issues**, several proven by actually executing this crawl's code against a
+clean migrated schema rather than by reading it -- which is also how it
+caught the one claim in the section above that was not true of the real
+code: "the full real sequence proven directly against staging D1" was true
+of `planEventUpsert`'s statements in isolation, but `runCrawlCycle` --
+the actual Worker entry point -- had never once been run against the real
+schema at all. Its first write used `component` values
+(`'scout_discovery'`, `'scout_ingest'`, `'scout_linkcheck'`) the
+`crawl_runs` table's own CHECK constraint does not permit, so the run
+would have failed on line one, in production, on the first scheduled
+tick. The full, unfiltered review is posted to EXC-144 (excelsior-master's
+Linear tracker); it is not duplicated here.
+
+All twelve are fixed:
+
+- **crawl_runs component values** (B4): `runCrawlCycle` now uses only
+  `'tier1_scout'` (region: `'robots_check'` / `'discovery'` / `'ingest'`)
+  and `'link_checker'`, the six literals the schema actually permits.
+  Proven against a REAL migrated D1 via a rewritten
+  `scripts/verify-scout.sh` (see below) -- not a fake, the actual
+  `scheduled()` handler, the actual schema.
+- **Cross-phase and cross-alias rate-limit starvation** (B5/B6): the
+  single shared per-company clock used to be claimed once per invocation
+  and refuse everyone else for the rest of that run -- ingest and
+  link-check always lost to discovery, and alias 2+ of one company never
+  got fetched, every single night. `d1ClaimSlot` (`d1adapters.js`) now
+  waits in real time (bounded, default 90s) for the slot to free, so a
+  later claimer in the same invocation gets its turn instead of being
+  refused permanently. The phase-level decision functions
+  (`discover.js`/`ingest.js`/`linkcheck.js`) are unchanged in shape --
+  they still just call `claimSlot(source)` once per item -- so their own
+  unit tests (which inject a plain fake) are unaffected; the real waiting
+  lives only in the real adapter, same split as every other D1 adapter in
+  this file.
+- **The link checker fetching an excluded /order/ path, and never
+  checking the terms-review gate** (B1/B2): `linkcheck.js` no longer
+  fetches `registration_url` at all. It re-fetches the event's own
+  `source_url` (always an `EVENT_DETAIL_PATH` page, the one type this
+  crawl is reviewed to touch) and re-parses it to confirm a registration
+  link is still present -- the real liveness signal, without ever
+  requesting the registration/checkout flow itself. It now also calls
+  `checkSource()`, the same gate discovery and ingest already used, so
+  deactivating a source stops the daily link re-check too. This also
+  incidentally fixed the false-demotion half of B9: re-checking
+  `source_url` is always same-host by construction, so an off-platform or
+  bare-domain `registration_url` can no longer cause our OWN host
+  allowlist refusal to be misread as "the link is dead."
+- **robots.txt never re-read** (B3): `robotscheck.js` (new), wired as
+  phase 0 of every crawl cycle, re-fetches each active alias's own
+  robots.txt, hashes it, and compares against the hash recorded at
+  activation. Unchanged: `robots_read_on` refreshes. Different, or the
+  file disappeared entirely (404): the alias is paused (`active = 0`),
+  the recorded hash is left untouched as the historical record of what
+  was actually reviewed, and a human has to look again -- `checkSource`
+  and the discovery gate already refuse an inactive row.
+- **A plain http:// link aborting the whole discovery batch** (B7):
+  `classifyUrl` now refuses anything but `https:` at the source, so an
+  ordinary mixed-scheme anchor is simply dropped, never enqueued.
+  `d1EnqueueDiscovered` also no longer runs its inserts as one atomic
+  `db.batch()` -- each URL's own INSERT is awaited and caught
+  individually, so one row's own rejection (belt AND suspenders) can
+  never take its siblings down with it.
+- **Percent-encoding walking past the one exclusion list** (B10):
+  `classifyUrl` now decodes the pathname (bounded, repeated, fails closed
+  on malformed encoding) before testing it against
+  `EXCLUDED_PATH_RULES`/`EVENT_DETAIL_PATH`, so `%2e%2e%2f...order%2f...`
+  is judged by what it actually resolves to.
+- **A fetched page never revisited, so real changes are invisible
+  forever** (B8): `d1RequeueStalePages` puts a `discovered_pages` row
+  that has been `'fetched'` for more than three days back to `'pending'`
+  (schema-legal: only `status`/`fetched_at` change, together, which is
+  exactly what `discovered_pages_immutable_identity` and the table's own
+  `CHECK` both allow). `runIngest` calls it before loading pending pages,
+  so `planEventUpsert`'s demote-then-update machinery can actually fire
+  on a page ingested once, long ago.
+- **No backoff or stop on 403/429/503 anywhere** (B12): every phase now
+  tracks a per-run, per-company backoff set. A 429 or 503 stops further
+  fetches to that company for the rest of tonight's run (tried again
+  tomorrow). A 403 does the same AND calls the new `d1DeactivateSource`
+  (`sources.active = 0`) -- a 403 is an answer that stops that host, per
+  the terms review, not a page to retry tomorrow; the source stays
+  inactive until a human looks again.
+- **The real Crawl-delay being ignored** (B11): `d1ClaimSlot` now uses
+  `minIntervalSeconds(source.robots_crawl_delay_seconds)` --
+  `limiter.js`'s own exported helper, previously unused by the real
+  adapter -- instead of the bare 10-second floor.
+
+**Proof, not just code**: `npm run test:unit` is now 236 tests (was 158 in
+the section above), including a new `runIngest`-level suite
+(`ingest.run.test.js`) that previously did not exist at all (only the pure
+`planEventUpsert` decision was tested; the orchestration loop itself --
+where B5/B8/B12 actually lived -- had zero coverage), a new
+`robotscheck.test.js`, and new cases in `discover.test.js`/
+`linkcheck.test.js`/`smoothcomp.test.js` for every one of the twelve
+findings above. Separately, `scripts/verify-scout.sh` was rewritten for
+the real multi-phase crawl and re-run against a fresh local D1 migration:
+one full `scheduled()` cycle, against the real schema, with today's real
+data shape (one fully-reviewed active source, zero active aliases --
+checked directly against staging and production before writing this),
+closes all four phases `succeeded` with schema-valid `component` values
+and zero fetches. That is the direct, executed proof that B4 is closed
+and that this is genuinely what the first real scheduled run looks like
+today, not a synthetic best case.
+
+**Still not proven, honestly**: a real network fetch against a real
+Smoothcomp organizer subdomain, end to end. Today (2026-09-19), zero
+`source_aliases` rows exist anywhere, in any environment -- ALMANAC has
+never activated one. Activating an alias requires ARCHITECTURE.md section
+9 rule 5's human check of that organizer subdomain's own terms page, a
+legal-judgment step outside this program's standing authorization. Until
+one is activated, "the first scheduled run" is, honestly, an empty one:
+every phase executes for real, against the real schema, and finds nothing
+to do. Also unchanged from the section above: production's `SCOUT_ENABLED`
+stays `false` and carries no `[triggers]` section; if a nightly run is
+authorized before then, it is staging's own config that moves, never
+production's, per the standing "production stays untouched until the one
+gate" rule.

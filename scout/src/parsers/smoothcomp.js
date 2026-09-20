@@ -122,6 +122,30 @@ function extractAllHrefs(html) {
   return hrefs;
 }
 
+// Percent-decoded, so an encoded traversal (%2F, %2E) is judged by what the
+// path actually resolves to, not by the literal characters that happened to
+// precede decoding. WHATWG URL deliberately leaves %2F etc. encoded in
+// .pathname (Opus review, 2026-09-19: a listing-page link like
+// "/en/event/900001/%2e%2e%2f%2e%2e%2forder%2fx" walked straight past
+// EXCLUDED_PATH_RULES because the raw pathname never looked like /order/ at
+// all). Decoded repeatedly, bounded, to also catch double-encoding; a
+// malformed sequence fails closed (null), never silently falls back to the
+// raw (unsafe) string.
+function decodedPathname(pathname) {
+  let value = pathname;
+  for (let i = 0; i < 3; i += 1) {
+    let next;
+    try {
+      next = decodeURIComponent(value);
+    } catch {
+      return null;
+    }
+    if (next === value) return value;
+    value = next;
+  }
+  return value;
+}
+
 // ---- one place that decides whether a smoothcomp.com URL may be touched ----
 
 // Both the listing parser (deciding which links to keep) and the fetcher
@@ -144,16 +168,26 @@ export function classifyUrl(rawUrl, { base = null, allowedHosts = [SOURCE_HOST] 
   } catch {
     return { ok: false, reason: 'not a resolvable URL' };
   }
-  if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') {
-    return { ok: false, reason: `not an http(s) link (${resolved.protocol})`, url: resolved };
+  // https only. discovered_pages.url carries CHECK (url LIKE 'https://%'),
+  // and fetcher.js never sends anything else -- an http: link on a real
+  // listing page (ordinary; mixed-scheme anchors are common) used to reach
+  // this far and abort the whole enqueue batch downstream (Opus review,
+  // 2026-09-19). Refusing it HERE means it is simply dropped, not enqueued,
+  // exactly like any other link this parser declines to keep.
+  if (resolved.protocol !== 'https:') {
+    return { ok: false, reason: `only https is crawled, this is ${resolved.protocol.replace(':', '')}`, url: resolved };
   }
   const hosts = allowedHosts.map((h) => h.toLowerCase());
   if (!hosts.includes(resolved.hostname.toLowerCase())) {
     return { ok: false, reason: `not on ${hosts.join(', ')}`, url: resolved };
   }
-  const excluded = EXCLUDED_PATH_RULES.find((rule) => rule.test(resolved.pathname));
+  const decoded = decodedPathname(resolved.pathname);
+  if (decoded === null) {
+    return { ok: false, reason: 'malformed percent-encoding in path', url: resolved };
+  }
+  const excluded = EXCLUDED_PATH_RULES.find((rule) => rule.test(decoded));
   if (excluded) return { ok: false, reason: excluded.reason, url: resolved };
-  if (!EVENT_DETAIL_PATH.test(resolved.pathname)) {
+  if (!EVENT_DETAIL_PATH.test(decoded)) {
     return { ok: false, reason: 'not an event detail page path', url: resolved };
   }
   return { ok: true, url: resolved };

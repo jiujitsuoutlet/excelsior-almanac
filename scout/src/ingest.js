@@ -18,6 +18,17 @@ import * as smoothcomp from './parsers/smoothcomp.js';
 
 export const PARSERS = { 'src-smoothcomp': smoothcomp };
 
+// A detail page fetched once and never revisited can never have its
+// change-detection machinery (planEventUpsert's demote-then-update path)
+// fire at all -- a moved date or a dead registration link on an
+// already-ingested page is invisible forever (Opus review, 2026-09-19,
+// B8). Re-queuing a 'fetched' page back to 'pending' after it goes stale
+// is schema-legal (discovered_pages_immutable_identity only guards id/
+// source_id/host/url/discovered_at; status+fetched_at are exactly the
+// two columns this flips together, satisfying the table's own
+// CHECK ((status='pending') = (fetched_at IS NULL))).
+export const REQUEUE_AFTER_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
+
 // The content fields `events_approved_content_lock` guards, word for
 // word from the migration. last_seen_at/link_checked_at/updated_at are
 // deliberately excluded: they are freshness bookkeeping, never locked.
@@ -123,7 +134,8 @@ export async function applyEventUpsert(db, statements) {
  * @param {object} deps
  * @param {number} deps.now
  * @param {Function} deps.fetchImpl
- * @param {Function} deps.claimSlot - async (sourceId, now) => boolean
+ * @param {Function} deps.claimSlot - async (source) => boolean, the full
+ *   `sources` row (its own real Crawl-delay lives on it)
  * @param {Function} deps.loadPendingPages - async (limit) => Array<{ id, sourceId, host, url, source: <sources row> }>
  * @param {Function} deps.loadExistingEvent - async ({ sourceHost, sourceEventRef, dedupeKey }) => existing row or null
  * @param {Function} deps.applyUpsert - async (statements) => void, defaults to a no-op-safe binding of applyEventUpsert(db, ...)
@@ -131,6 +143,14 @@ export async function applyEventUpsert(db, statements) {
  * @param {Function} deps.markPageFailed - async (pageId, reason) => void
  * @param {number} [deps.maxPages] - bounds one invocation's work, since each
  *   page is its own rate-limited fetch (Worker execution time is not infinite).
+ * @param {Function} [deps.requeueStalePages] - async (staleBeforeIso, limit) =>
+ *   number of rows requeued; puts old 'fetched' pages back to 'pending' so
+ *   a real change (a moved date, a dead registration link) on an
+ *   already-ingested page is ever seen again. Defaults to a no-op only for
+ *   callers that don't care (most existing tests, which never fetched a
+ *   page before); the real crawl always wires this to a real requeue.
+ * @param {number} [deps.requeueAfterMs]
+ * @param {number} [deps.requeueLimit]
  */
 export async function runIngest({
   now,
@@ -142,17 +162,26 @@ export async function runIngest({
   markPageFetched,
   markPageFailed,
   maxPages = 20,
+  deactivateSource = async () => {},
+  requeueStalePages = async () => 0,
+  requeueAfterMs = REQUEUE_AFTER_MS,
+  requeueLimit = 20,
 }) {
   for (const fn of [fetchImpl, claimSlot, loadPendingPages, loadExistingEvent, applyUpsert, markPageFetched, markPageFailed]) {
     if (typeof fn !== 'function') throw new Error('runIngest requires every dependency as an injected function');
   }
 
+  const requeued = await requeueStalePages(new Date(now - requeueAfterMs).toISOString(), requeueLimit);
   const pages = await loadPendingPages(maxPages);
   let fetched = 0;
   let inserted = 0;
   let updated = 0;
   let unchanged = 0;
   const failed = [];
+  // Same per-run, per-company backoff as discover.js (Opus review,
+  // 2026-09-19, B12): a 403/429/503 on page 3 of 20 means pages 4-20 of
+  // the SAME company are not hammered a moment later.
+  const backedOff = new Set();
 
   for (const page of pages) {
     const gate = checkSource(page.source);
@@ -170,8 +199,14 @@ export async function runIngest({
       continue;
     }
 
+    if (backedOff.has(page.source.id)) {
+      // Left 'pending', not failed: this is our own restraint, not a
+      // defect in the page, so a later run should still try it.
+      continue;
+    }
+
     // eslint-disable-next-line no-await-in-loop -- one company's clock at a time
-    const claimed = await claimSlot(page.source.id, now);
+    const claimed = await claimSlot(page.source, now);
     if (!claimed) {
       // Not a failure: this page stays 'pending' for a later run to try
       // again once the shared clock allows it.
@@ -190,6 +225,22 @@ export async function runIngest({
       continue;
     }
     fetched += 1;
+
+    if (response.status === 403) {
+      backedOff.add(page.source.id);
+      failed.push({ url: page.url, reason: 'http 403; the host said no -- this source is being paused for human review, not retried' });
+      // eslint-disable-next-line no-await-in-loop
+      await markPageFailed(page.id, 'http 403 from host');
+      // eslint-disable-next-line no-await-in-loop
+      await deactivateSource(page.source.id, `ingest got http 403 from ${page.host}`);
+      continue;
+    }
+    if (response.status === 429 || response.status === 503) {
+      backedOff.add(page.source.id);
+      // Left 'pending', not failed: the page itself is fine, the host just
+      // asked us to slow down. A later run tries again.
+      continue;
+    }
 
     const grounding = groundPage(response);
     if (!grounding.grounded) {
@@ -222,5 +273,5 @@ export async function runIngest({
     await markPageFetched(page.id);
   }
 
-  return { fetched, inserted, updated, unchanged, failed };
+  return { fetched, inserted, updated, unchanged, failed, requeued };
 }
