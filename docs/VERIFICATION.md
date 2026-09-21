@@ -757,3 +757,30 @@ stays `false` and carries no `[triggers]` section; if a nightly run is
 authorized before then, it is staging's own config that moves, never
 production's, per the standing "production stays untouched until the one
 gate" rule.
+
+## The first live staging crawl (founder ruling, 2026-09-20)
+
+Deployed `almanac-scout-staging` (nightly cron `0 7 * * *`, `SCOUT_ENABLED=true`),
+activated six Smoothcomp organizer aliases on the founder's subdomain-terms rule
+(each: robots.txt byte-identical to the parent's, `/en/agreements` 404 on the
+subdomain, verdict `inherited_parent`, reasoning recorded in the row;
+`scripts/review-aliases.mjs`), and ran the real cycle against real staging D1 and
+the real hosts via `wrangler dev --remote --test-scheduled`.
+
+What the run proved live: robots re-check 6/6 unchanged; discovery fetched all six
+listing pages 10 seconds apart (the B5/B6 fixes, on the real clock); 338 event URLs
+enqueued; ingest fetched ONE event page, got HTTP 403 from Cloudflare's own egress,
+marked it failed, paused the source (`sources.active = 0`) and stopped -- the B12
+stop-on-403 law working as written. Zero Smoothcomp rows landed.
+
+Three defects only a live run could find, all fixed: (1) `ctx.waitUntil` is
+cancelled ~30s after the handler returns, killing a cycle that spends minutes
+honoring the 10s clock -- the handler now awaits; (2) a cancelled cycle left its
+`crawl_runs` row `running` forever -- a 20-minute sweep now closes it; (3) the
+listing pages serve events as a JSON-LD `ItemList`, not `<a href>` anchors, so
+discovery found nothing until `parseListingPage` read that.
+
+Not covered: no Smoothcomp event detail page has ever been parsed from real HTML
+(every fixture is synthetic; the real ones return 403 to plain HTTP, honest UA or
+browser UA, from a home IP and from Cloudflare). Link-check and the requeue path have
+never run against a real approved row. `state` is not in the listing data.

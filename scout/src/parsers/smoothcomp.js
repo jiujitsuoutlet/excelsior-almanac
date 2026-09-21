@@ -216,7 +216,21 @@ export function parseListingPage(html, { url, allowedHosts = [SOURCE_HOST] } = {
   const eventUrls = [];
   const dropped = [];
 
-  for (const raw of extractAllHrefs(safeHtml)) {
+  // Smoothcomp's federation "upcoming events" pages serve their list as a
+  // JSON-LD ItemList, not as <a href> anchors (found by the first live
+  // crawl, 2026-09-20: 6 real listing pages, 0 anchors, 100+ ItemList
+  // urls). Same data-only reading as parseEventPage's JSON-LD: JSON.parse,
+  // never evaluated; every url still goes through classifyUrl below.
+  const candidates = extractAllHrefs(safeHtml);
+  for (const block of jsonLdBlocks(safeHtml)) {
+    for (const item of Array.isArray(block) ? block : [block]) {
+      if (item && item['@type'] === 'ItemList' && Array.isArray(item.itemListElement)) {
+        for (const el of item.itemListElement) if (el && typeof el.url === 'string') candidates.push(el.url);
+      }
+    }
+  }
+
+  for (const raw of candidates) {
     const verdict = classifyUrl(raw, { base: url, allowedHosts });
     if (!verdict.ok) {
       dropped.push({ url: verdict.url ? verdict.url.toString() : raw, reason: verdict.reason });

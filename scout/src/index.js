@@ -18,18 +18,10 @@
 // aliases (today's real state; ALMANAC has never activated one) is a
 // legitimate, fully-exercised empty run, not a skipped one.
 //
-// Still fully inert, on purpose, exactly as the original skeleton was:
-//
-//   1. No Cron Trigger calls it. scout/wrangler.toml has no [triggers]
-//      section. Wiring a schedule is a separate, founder-gated step.
-//   2. Even if something did call scheduled(), the handler refuses
-//      unless env.SCOUT_ENABLED is exactly "true". No checked-in
-//      configuration sets that variable anywhere.
-//
-// A real fetchImpl now exists where disabledFetch's inert third layer
-// used to be -- that is exactly why gates 1 and 2 above are load-bearing
-// now, not decorative. The founder's own review of this whole crawl path
-// is the remaining gate before either one is ever lifted.
+// Gates (see scout/wrangler.toml): production is inert -- SCOUT_ENABLED
+// "false", no Cron Trigger -- until the founder's one release gate. Staging
+// runs nightly (authorized 2026-09-20). scheduled() refuses unless
+// env.SCOUT_ENABLED is exactly "true".
 
 import { runRobotsRecheck } from './robotscheck.js';
 import { runDiscovery } from './discover.js';
@@ -73,6 +65,14 @@ async function runCrawlCycle(env) {
   const openRun = d1RunOpener(env.DB);
   const closeRun = d1RunCloser(env.DB);
   const loadActiveAliasesWithSource = d1ActiveAliasesWithSourceLoader(env.DB);
+
+  // A cycle killed mid-flight (runtime cancellation, deploy) leaves its
+  // crawl_runs row 'running' forever; nothing else ever closes it. Any row
+  // still running past the platform's own wall-time limit is dead.
+  await env.DB
+    .prepare(`UPDATE crawl_runs SET status = 'failed', finished_at = ?1, errors = errors + 1 WHERE status = 'running' AND started_at < ?2`)
+    .bind(new Date(now).toISOString(), new Date(now - 20 * 60 * 1000).toISOString())
+    .run();
 
   // Phase 0: robots.txt drift, per active alias, before anything else
   // fetches a single page tonight (ARCHITECTURE.md section 9 rule 4;
@@ -165,8 +165,11 @@ export default {
       console.log('scout: SCOUT_ENABLED is not "true"; refusing to run. Scheduling this Worker is a separate, founder-gated step.');
       return;
     }
-    const run = runCrawlCycle(env);
-    if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(run);
-    else await run;
+    // Awaited, never ctx.waitUntil (found by the first LIVE run,
+    // 2026-09-20; Opus N9/N10): waitUntil work is cancelled ~30s after the
+    // handler returns, and one cycle spends real wall time honoring the
+    // 10s-per-company clock. Awaiting keeps the invocation alive for the
+    // whole cycle and lets a rejection surface as a failed cron run.
+    await runCrawlCycle(env);
   },
 };

@@ -326,3 +326,16 @@ test('malformed percent-encoding fails closed, never falls back to the raw strin
   assert.equal(verdict.ok, false);
   assert.match(verdict.reason, /malformed percent-encoding/);
 });
+
+test('a listing served as a JSON-LD ItemList (no anchors at all, the real federation page shape) still yields its event urls, filtered by the same rules', () => {
+  const ld = JSON.stringify({ '@context': 'http://schema.org', '@type': 'ItemList', itemListElement: [
+    { '@type': 'ListItem', position: 1, url: 'https://fujibjj.smoothcomp.com/en/event/25915' },
+    { '@type': 'ListItem', position: 2, url: 'https://fujibjj.smoothcomp.com/en/event/25916/order/x' },
+    { '@type': 'ListItem', position: 3, url: 'https://evil.example.com/en/event/1' },
+    { '@type': 'ListItem', position: 4, url: 'http://fujibjj.smoothcomp.com/en/event/25917' },
+  ] }).replace(/\//g, '\\/');
+  const html = `<html><script type="application/ld+json">${ld}</script></html>`;
+  const { eventUrls, dropped } = parseListingPage(html, { url: 'https://fujibjj.smoothcomp.com/en/federation/201/events/upcoming', allowedHosts: ['fujibjj.smoothcomp.com'] });
+  assert.deepEqual(eventUrls, ['https://fujibjj.smoothcomp.com/en/event/25915']);
+  assert.equal(dropped.length, 3);
+});
