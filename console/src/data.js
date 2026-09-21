@@ -2,6 +2,7 @@
 // review_log with action = 'transition'; the database applies it (schema rule 1).
 
 import {
+  precisionByHost,
   REJECT_REASONS, EDITABLE_FIELDS, chipsFor, duplicateState, approvalEligibility,
   dedupeKey, hostOf, queueHeadline, weekdayDate, daysUntil, approvalBlockers,
 } from './lib.js';
@@ -87,6 +88,22 @@ export async function statusStrip(db) {
     "SELECT component, status, started_at, finished_at FROM crawl_runs WHERE component LIKE '%scout' ORDER BY started_at DESC LIMIT 1",
   ).first();
   return { ...row, last_scout_run: lastRun ?? null };
+}
+
+// Human decisions on scout-created (Tier 1/2) rows, per host. Machine
+// actors ('system:...') never count: this measures what a person made of
+// the scout's output, not what the scout did. A row counts once per
+// decision direction however many times it was re-reviewed.
+export async function scoutPrecision(db) {
+  const { results } = await db.prepare(`
+    SELECT e.source_host AS source_host, rl.to_status AS decision, count(DISTINCT e.id) AS n
+    FROM review_log rl JOIN events e ON e.id = rl.entity_id
+    WHERE rl.entity_type = 'event' AND rl.action = 'transition'
+      AND rl.from_status = 'needs_review' AND rl.to_status IN ('approved', 'rejected')
+      AND e.source_tier IN (1, 2) AND rl.actor NOT LIKE 'system:%'
+    GROUP BY e.source_host, rl.to_status
+  `).all();
+  return precisionByHost(results);
 }
 
 // The queue: rows waiting for review, grouped by host. Groups are ordered by

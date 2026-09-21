@@ -84,3 +84,5 @@ kbd { font-family: inherit; font-weight: 600; font-size: 12px; color: var(--ink)
 
 .footer { display: flex; flex-wrap: wrap; gap: 6px 16px; justify-content: space-between; padding: 8px 16px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); background: var(--card); }
 .legend kbd { margin-left: 6px; }
+
+.precision { color: var(--muted, #888); font-size: 0.85rem; margin: 0 0 1rem; }

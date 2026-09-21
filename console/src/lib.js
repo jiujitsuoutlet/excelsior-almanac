@@ -238,3 +238,21 @@ export function daysUntil(isoDate, today) {
   if (!isRealDate(isoDate) || !isRealDate(today)) return null;
   return Math.round((Date.parse(`${isoDate}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86400000);
 }
+
+// Scout precision (ARCHITECTURE.md: "a first-week precision report per
+// host"): of the scout-created rows a human has decided, how many did the
+// human approve. `rows` = [{ source_host, decision: 'approved'|'rejected', n }].
+// precision is null (never 0, never 1) until at least one decision exists,
+// so an empty host cannot read as a perfect or a failing one.
+export function precisionByHost(rows) {
+  const hosts = new Map();
+  for (const r of rows ?? []) {
+    if (!hosts.has(r.source_host)) hosts.set(r.source_host, { host: r.source_host, approved: 0, rejected: 0 });
+    const h = hosts.get(r.source_host);
+    if (r.decision === 'approved') h.approved += r.n;
+    else if (r.decision === 'rejected') h.rejected += r.n;
+  }
+  return [...hosts.values()]
+    .map((h) => ({ ...h, decided: h.approved + h.rejected, precision: h.approved + h.rejected === 0 ? null : h.approved / (h.approved + h.rejected) }))
+    .sort((a, b) => a.host.localeCompare(b.host));
+}
