@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   queueHeadline, dedupeKey, normalizeText, nameSimilarity, isRealDate, validateEventInput,
-  chipFor, chipsFor, duplicateState, approvalEligibility, approvalBlockers, weekdayDate, daysUntil, precisionByHost,
+  chipFor, chipsFor, duplicateState, approvalEligibility, approvalBlockers, weekdayDate, daysUntil, precisionByHost, inFootprint, footprintHeadline,
 } from '../src/lib.js';
 
 test('headline shows the count and minutes before you start', () => {
@@ -159,4 +159,22 @@ test('a scraped, live row is unaffected -- the new states never weaken an existi
   const event = { registration_url: 'https://smoothcomp.com/en/event/1/register', city: 'Testburg', state: 'MO', country: 'US' };
   const signals = [{ id: 1, signal: 'link_live', passed: 1, evidence: { url: event.registration_url } }];
   assert.equal(chipFor('registration_url', event, signals), 'green');
+});
+
+test('the footprint is Missouri and its eight bordering states, and nothing else', () => {
+  for (const state of ['MO', 'AR', 'IA', 'IL', 'KS', 'KY', 'NE', 'OK', 'TN']) {
+    assert.equal(inFootprint({ state }), true, state);
+  }
+  for (const state of ['TX', 'FL', 'CA', 'ND', 'WA']) {
+    assert.equal(inFootprint({ state }), false, state);
+  }
+  assert.equal(inFootprint({ state: 'mo' }), true, 'case is not a reason to miss a row');
+  assert.equal(inFootprint({}), false);
+});
+
+test('the headline leads with the footprint, and still says what is behind it', () => {
+  assert.equal(footprintHeadline(42, 269), '42 rows in your footprint, about 14 minutes, then 227 outside it');
+  assert.equal(footprintHeadline(1, 1), '1 row in your footprint, about 1 minute');
+  assert.equal(footprintHeadline(0, 269), 'Nothing in your footprint. 269 rows elsewhere.');
+  assert.equal(footprintHeadline(0, 0), 'Nothing to review');
 });

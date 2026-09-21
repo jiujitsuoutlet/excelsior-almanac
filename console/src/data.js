@@ -3,6 +3,8 @@
 
 import {
   precisionByHost,
+  inFootprint,
+  footprintHeadline,
   REJECT_REASONS, EDITABLE_FIELDS, chipsFor, duplicateState, approvalEligibility,
   dedupeKey, hostOf, queueHeadline, weekdayDate, daysUntil, approvalBlockers,
 } from './lib.js';
@@ -119,11 +121,23 @@ export async function queue(db) {
     groups.get(r.source_host).push(r);
   }
   const byRow = (a, b) => a.start_date.localeCompare(b.start_date) || (b.confidence ?? -1) - (a.confidence ?? -1) || a.id.localeCompare(b.id);
-  const ordered = [...groups.values()]
+  const grouped = [...groups.values()]
     .map((rows) => rows.sort(byRow))
     .sort((a, b) => a[0].start_date.localeCompare(b[0].start_date) || a[0].source_host.localeCompare(b[0].source_host))
     .flat();
-  return { rows: ordered, headline: queueHeadline(ordered.length) };
+  // Footprint first (founder ruling, 2026-09-20: "sort my queue so the
+  // Missouri-and-bordering rows come first... that is my first review
+  // session, not all 269"). Everything else keeps its existing order and
+  // follows; nothing is hidden or dropped.
+  const footprint = grouped.filter(inFootprint);
+  const rest = grouped.filter((r) => !inFootprint(r));
+  const ordered = [...footprint, ...rest];
+  return {
+    rows: ordered,
+    footprint_count: footprint.length,
+    headline: footprintHeadline(footprint.length, ordered.length),
+    total_headline: queueHeadline(ordered.length),
+  };
 }
 
 async function signalsFor(db, id) {

@@ -115,6 +115,9 @@ function renderMain() {
   if (state.mode === 'blocked') return;
   const rows = state.overview.queue.rows;
   main.append(el('h1', { class: 'headline', 'data-testid': 'headline' }, state.overview.queue.headline));
+  if ((state.overview.queue.footprint_count ?? 0) > 0 && state.index === state.overview.queue.footprint_count) {
+    main.append(el('div', { class: 'precision', 'data-testid': 'footprint-edge' }, 'Past your footprint \u2014 the rows below are outside Missouri and its bordering states.'));
+  }
   const precision = state.overview.precision ?? [];
   main.append(el('div', { class: 'precision', 'data-testid': 'precision' },
     el('span', {}, 'Scout precision: '),
@@ -200,7 +203,14 @@ function renderMain() {
       ? `${event.registration_url}${live ? ` · ${live.passed === 1 ? 'live' : 'NOT live'} ${ago(live.checked_at)}` : ' · link not checked'}`
       : 'none', chip('registration_url'));
     row('Deadline', event.registration_deadline || 'not given', chip('registration_deadline'));
-    row('Divisions', el('span', { class: 'flags' }, ...['gi', 'nogi', 'kids'].map((f) => el('span', {}, `${event[f] ? '✓' : '✗'} ${f}`))));
+    // A listing-sourced row carries NO division information at all, so a
+    // bare "x gi" would assert the event has no gi divisions -- a claim
+    // nothing checked, rendered as a definite negative. Unknown says
+    // unknown (founder ruling, 2026-09-20: "DIVISIONS: unknown for these
+    // rows"; the matcher downranks them on the app side).
+    row('Divisions', event.link_check_method === 'structural'
+      ? el('span', { class: 'flags', 'data-testid': 'divisions-unknown' }, 'unknown \u2014 not on the listing page')
+      : el('span', { class: 'flags' }, ...['gi', 'nogi', 'kids'].map((f) => el('span', {}, `${event[f] ? '✓' : '✗'} ${f}`))));
     row('Organizer', event.organizer_name || 'not given', chip('organizer_name'));
   }
   card.append(grid);

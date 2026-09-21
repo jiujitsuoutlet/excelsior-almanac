@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { parseEventPage, parseListingPage, toDraftRow, classifyUrl, pathAllowed, SOURCE_HOST } from '../../src/parsers/smoothcomp.js';
+import { parseEventPage, parseListingPage, parseListingEvents, toDraftRow, classifyUrl, pathAllowed, SOURCE_HOST } from '../../src/parsers/smoothcomp.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES = path.join(__dirname, '..', 'fixtures', 'smoothcomp');
@@ -338,4 +338,12 @@ test('a listing served as a JSON-LD ItemList (no anchors at all, the real federa
   const { eventUrls, dropped } = parseListingPage(html, { url: 'https://fujibjj.smoothcomp.com/en/federation/201/events/upcoming', allowedHosts: ['fujibjj.smoothcomp.com'] });
   assert.deepEqual(eventUrls, ['https://fujibjj.smoothcomp.com/en/event/25915']);
   assert.equal(dropped.length, 3);
+});
+
+test('a listing city with the state appended is reduced to the city itself', () => {
+  const ld = JSON.stringify([{ id: 1, title: 'AGF Springfield Open', url: 'https://agf.smoothcomp.com/en/event/28664', startdate: '2026-10-03', enddate: '2026-10-03', location_city: 'Springfield, MO', location_country: 'US', location_lat: '37.21', location_long: '-93.29' }]);
+  const html = `<html><script>var events = ${ld};</script></html>`;
+  const { events } = parseListingEvents(html, { url: 'https://agf.smoothcomp.com/en/federation/279/events/upcoming', allowedHosts: ['agf.smoothcomp.com'] });
+  assert.equal(events.length, 1);
+  assert.equal(events[0].city, 'Springfield', 'the state suffix is not part of the city name');
 });
