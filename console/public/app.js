@@ -135,6 +135,15 @@ function renderMain() {
   const editing = state.mode === 'edit';
 
   const card = el('div', { class: 'card', 'data-testid': 'row' });
+  // A row built from a listing page, never from the event page itself, is
+  // thinner than a detail-sourced one and says so on its face.
+  if (event.link_check_method === 'structural' || event.state_source === 'derived') {
+    card.append(el('div', { class: 'provenance', 'data-testid': 'provenance' },
+      'Listing-sourced row: built from the organizer\u2019s event calendar, not the event page (that page refuses us). '
+      + 'Divisions unknown. '
+      + (event.state_source === 'derived' ? 'State derived from the event\u2019s coordinates. ' : '')
+      + (event.link_check_method === 'structural' ? 'The registration link was checked for shape only, never opened.' : '')));
+  }
   card.append(el('div', { class: 'position', 'data-testid': 'position' },
     `Row ${state.index + 1} of ${rows.length} · ${event.source_host} · Tier ${event.source_tier} · entered ${ago(event.created_at)}`));
   card.append(el('div', { class: 'source' },
@@ -144,10 +153,20 @@ function renderMain() {
   ));
 
   const grid = el('div', { class: 'fields' });
+  // Each chip colour has its OWN words. A structural link check and a
+  // derived state are deliberately not phrased like "found on page": they
+  // are weaker facts, and a reviewer has to be able to see that at a
+  // glance (founder ruling, 2026-09-20).
+  const CHIP_LABELS = {
+    green: 'found on page',
+    amber: 'not confirmed',
+    grey: 'not checked',
+    structural: 'link not checked live',
+    derived: 'state derived from map',
+  };
   const chip = (name) => {
     const c = chips[name] ?? 'grey';
-    const label = c === 'green' ? 'found on page' : c === 'amber' ? 'not confirmed' : 'not checked';
-    return el('span', { class: `chip chip-${c}`, 'data-chip': name, 'data-color': c }, label);
+    return el('span', { class: `chip chip-${c}`, 'data-chip': name, 'data-color': c }, CHIP_LABELS[c] ?? 'not checked');
   };
   const row = (label, valueNode, chipNode) => grid.append(el('span', { class: 'label' }, label), el('span', { class: 'value' }, valueNode), chipNode ?? el('span'));
   const input = (field, type = 'text') => el('input', { name: field, type, value: event[field] ?? '', 'data-field': field });

@@ -161,6 +161,7 @@ export async function runIngest({
   applyUpsert,
   markPageFetched,
   markPageFailed,
+  markPageExcluded = async () => {},
   maxPages = 20,
   deactivateSource = async () => {},
   requeueStalePages = async () => 0,
@@ -178,6 +179,7 @@ export async function runIngest({
   let updated = 0;
   let unchanged = 0;
   const failed = [];
+  let excluded = 0;
   // Same per-run, per-company backoff as discover.js (Opus review,
   // 2026-09-19, B12): a 403/429/503 on page 3 of 20 means pages 4-20 of
   // the SAME company are not hammered a moment later.
@@ -191,6 +193,20 @@ export async function runIngest({
       await markPageFailed(page.id, gate.reason);
       continue;
     }
+    // A 'listing_only' source's event pages are never fetched, whatever is
+    // sitting in the queue (founder ruling, 2026-09-20). Found by the first
+    // listing-mode run: rows enqueued by the EARLIER, detail-fetching
+    // architecture were still pending, so ingest dutifully fetched one,
+    // got its 403 and paused the whole source -- undoing the listing run
+    // that had just succeeded. The queue is drained as 'excluded', which is
+    // what that status is for: a page this crawl will never fetch.
+    if (page.source.crawl_mode === 'listing_only') {
+      excluded += 1;
+      // eslint-disable-next-line no-await-in-loop
+      await markPageExcluded(page.id, 'this source is listing_only; its event pages are never fetched');
+      continue;
+    }
+
     const parser = PARSERS[page.source.id];
     if (!parser) {
       failed.push({ url: page.url, reason: `no parser registered for source ${page.source.id}` });
@@ -273,5 +289,5 @@ export async function runIngest({
     await markPageFetched(page.id);
   }
 
-  return { fetched, inserted, updated, unchanged, failed, requeued };
+  return { fetched, inserted, updated, unchanged, failed, requeued, excluded };
 }

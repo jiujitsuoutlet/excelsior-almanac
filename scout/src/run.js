@@ -135,12 +135,12 @@ export function d1RunOpener(db) {
 }
 
 export function d1RunCloser(db) {
-  return async ({ runId, status, finishedAt, pagesFetched, errors, hostsSkipped }) => {
+  return async ({ runId, status, finishedAt, pagesFetched, errors, hostsSkipped, draftsCreated = 0 }) => {
     await db
       .prepare(
-        'UPDATE crawl_runs SET status = ?1, finished_at = ?2, pages_fetched = ?3, errors = ?4, hosts_skipped = ?5 WHERE id = ?6',
+        'UPDATE crawl_runs SET status = ?1, finished_at = ?2, pages_fetched = ?3, errors = ?4, hosts_skipped = ?5, drafts_created = ?7 WHERE id = ?6',
       )
-      .bind(status, new Date(finishedAt).toISOString(), pagesFetched, errors, hostsSkipped, runId)
+      .bind(status, new Date(finishedAt).toISOString(), pagesFetched, errors, hostsSkipped, runId, draftsCreated)
       .run();
   };
 }

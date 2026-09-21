@@ -784,3 +784,53 @@ Not covered: no Smoothcomp event detail page has ever been parsed from real HTML
 (every fixture is synthetic; the real ones return 403 to plain HTTP, honest UA or
 browser UA, from a home IP and from Cloudflare). Link-check and the requeue path have
 never run against a real approved row. `state` is not in the listing data.
+
+## Listing-sourced rows (founder ruling, 2026-09-20, route 1)
+
+"Build drafts from listing data only. Never fetch the event page." Live on
+staging: **269 rows landed across all six organizers** (grapplingindustries
+117, fujibjj 61, newbreedbjj 28, naga 25, agf 20, submissionchallenge 18;
+42 in the Missouri-plus-bordering-states footprint), every one
+`needs_review`, none approved by anything.
+
+**What is proven.** The full cycle ran twice against real staging D1 and the
+real hosts. The second run wrote ZERO rows and marked all 269 unchanged --
+real idempotency, not an assertion about it. `state` is derived from the
+event's own coordinates against a `places` gazetteer built from the SAME
+cities500 file and the same geoname_id keys as the app's own import (21,785
+US places, both sides). Every row carries `state_source='derived'` and
+`link_check_method='structural'`, and the console renders both with their own
+chip words and a provenance banner, never as "found on page"; a structural
+link keeps a row out of plain-A range, so it needs the deliberate Shift+A.
+
+**What the run refused to do, which is the point.** Of 339 listing entries:
+61 non-US, 9 unresolvable, 3 malformed -- none written. The unresolvable ones
+are the guards working on real data: Quad Cities (Hampton IL 6.1 km vs
+Bettendorf IA 8.7 km), St Joseph (MO 3.6 km vs Elwood KS 4.0 km), Fargo (ND
+5.6 km vs Moorhead MN 5.8 km). A nearest-city match cannot honestly answer
+those, so no row exists rather than a wrong one.
+
+**Two real defects the live run found, both fixed:**
+1. The leftover `discovered_pages` queue from the detail-fetching era made
+   ingest fetch one event page anyway, take its 403 and pause the whole
+   source -- undoing the listing run that had just succeeded. A
+   `listing_only` source's queued pages are now drained as `excluded` and
+   never fetched.
+2. Three "Grappling Industries VANCOUVER" (BC, Canada) rows landed stamped
+   `state='WA'`: the nearest US place to Vancouver is across the border, and
+   "nearest wins" answered a question it had no business answering.
+   `deriveState` is now country-aware and refuses any non-US event.
+
+**Left for a human, deliberately.** Those three Canadian rows are still in the
+staging review queue. The scout cannot retract them: `needs_review ->
+rejected` is `system_allowed = 0`, and the database refused the attempt
+verbatim -- "system actors cannot make this transition". A refusal is the
+proof; only a reviewer rejects.
+
+**Not covered.** No listing-sourced row has been approved or published, so the
+publish pipe has still never carried one. Divisions are unknown on every row
+(the matcher downranks, as ruled). The listing carries no venue, organizer or
+registration deadline, so those are null rather than invented. Non-tournament
+entries (one "SPECTATOR TICKETS" listing) are not distinguishable from
+tournaments by any signal the listing gives; the reviewer is the filter. The
+gazetteer is US-only by construction.

@@ -25,6 +25,8 @@
 
 import { runRobotsRecheck } from './robotscheck.js';
 import { runDiscovery } from './discover.js';
+import { writeListingDrafts } from './listingdrafts.js';
+import * as smoothcompParser from './parsers/smoothcomp.js';
 import { runIngest } from './ingest.js';
 import { runLinkCheck } from './linkcheck.js';
 import {
@@ -36,7 +38,9 @@ import {
   d1ApplyUpsert,
   d1MarkPageFetched,
   d1MarkPageFailed,
+  d1MarkPageExcluded,
   d1RequeueStalePages,
+  d1NearbyPlaces,
   d1DeactivateSource,
   d1MarkAliasRobotsFresh,
   d1PauseAliasForRobotsDrift,
@@ -102,9 +106,18 @@ async function runCrawlCycle(env) {
       loadActiveAliasesWithSource,
       claimSlot,
       enqueueDiscovered: d1EnqueueDiscovered(env.DB),
+      upsertListingDrafts: ({ source, events }) => writeListingDrafts({
+        source,
+        events,
+        now: Date.now(),
+        nearbyPlaces: d1NearbyPlaces(env.DB),
+        loadExistingEvent: d1ExistingEventLoader(env.DB),
+        applyUpsert: d1ApplyUpsert(env.DB),
+        toDraftRow: smoothcompParser.toListingDraftRow,
+      }),
       deactivateSource,
     });
-    await closeRun({ runId: discoveryRunId, status: 'succeeded', finishedAt: Date.now(), pagesFetched: discoveryResult.attempted, errors: discoveryResult.skipped.length, hostsSkipped: discoveryResult.skipped.length });
+    await closeRun({ runId: discoveryRunId, status: 'succeeded', finishedAt: Date.now(), pagesFetched: discoveryResult.attempted, errors: discoveryResult.skipped.length, hostsSkipped: discoveryResult.skipped.length, draftsCreated: discoveryResult.drafted });
   } catch (err) {
     await closeRun({ runId: discoveryRunId, status: 'failed', finishedAt: Date.now(), pagesFetched: 0, errors: 1, hostsSkipped: 0 });
     throw err;
@@ -122,6 +135,7 @@ async function runCrawlCycle(env) {
       applyUpsert: d1ApplyUpsert(env.DB),
       markPageFetched: d1MarkPageFetched(env.DB),
       markPageFailed: d1MarkPageFailed(env.DB),
+      markPageExcluded: d1MarkPageExcluded(env.DB),
       requeueStalePages: d1RequeueStalePages(env.DB),
       deactivateSource,
     });
