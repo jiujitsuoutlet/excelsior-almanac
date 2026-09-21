@@ -6,6 +6,14 @@
 # [triggers] cron below turn this pipe on for real, every 10 minutes,
 # matching ARCHITECTURE.md Section 9's stated cadence.
 #
+# PAUSED 2026-09-21 until the release gate (founder ruling): production still
+# serves the Sep 13 app bundle with the v2.51 floating event markers, so any
+# row approved now would land on the live Fire Temple as a floating label --
+# the exact design the founder rejected. "Rows and the new frontend ship
+# together at the gate, or not at all." Both halves are off together (no
+# half-on state): the kill switch, and the schedule. Approvals made meanwhile
+# queue in ALMANAC and publish on the first cycle after this is re-enabled.
+#
 # Identifiers only; no secrets here (hold 1). ALMANAC_PUBLISH_SECRET is set
 # via `wrangler secret put`, never written to this file. Same Cloudflare
 # account as the console and the rest of ALMANAC (MAD v2.55).
@@ -15,10 +23,10 @@ compatibility_date = "2026-09-01"
 account_id = "bbe6d5f6cc43632eafdd5ef854f48a25"
 
 [triggers]
-crons = ["*/10 * * * *"]
+crons = []
 
 [vars]
-PUBLISHER_ENABLED = "true"
+PUBLISHER_ENABLED = "false"
 APP_INGEST_URL = "https://pvqdyqquugxkypvrbwhs.supabase.co/functions/v1/almanac-ingest"
 
 [[d1_databases]]
