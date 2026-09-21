@@ -115,6 +115,13 @@ function renderMain() {
   if (state.mode === 'blocked') return;
   const rows = state.overview.queue.rows;
   main.append(el('h1', { class: 'headline', 'data-testid': 'headline' }, state.overview.queue.headline));
+  const precision = state.overview.precision ?? [];
+  main.append(el('div', { class: 'precision', 'data-testid': 'precision' },
+    el('span', {}, 'Scout precision: '),
+    precision.length === 0
+      ? el('span', {}, 'no scout rows reviewed yet')
+      : el('span', {}, precision.map((p) => `${p.host} ${p.approved} of ${p.decided} approved (${Math.round(p.precision * 100)}%)`).join(' · ')),
+  ));
   if (rows.length === 0) {
     main.append(el('div', { class: 'empty', 'data-testid': 'empty' },
       el('p', {}, state.overview.strip.last_scout_run ? 'The queue is clear.' : 'No scouts running yet.'),

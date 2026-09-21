@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   queueHeadline, dedupeKey, normalizeText, nameSimilarity, isRealDate, validateEventInput,
-  chipFor, chipsFor, duplicateState, approvalEligibility, approvalBlockers, weekdayDate, daysUntil,
+  chipFor, chipsFor, duplicateState, approvalEligibility, approvalBlockers, weekdayDate, daysUntil, precisionByHost,
 } from '../src/lib.js';
 
 test('headline shows the count and minutes before you start', () => {
@@ -120,4 +120,18 @@ test('an event with no registration link cannot be approved at all', () => {
 test('date display', () => {
   assert.equal(weekdayDate('2027-03-06'), 'Sat, Mar 6, 2027');
   assert.equal(daysUntil('2027-03-06', '2027-03-01'), 5);
+});
+
+test('precision is approved over decided per host, and null (not 0 or 1) with no decisions', () => {
+  const rows = [
+    { source_host: 'b.example.com', decision: 'approved', n: 3 },
+    { source_host: 'b.example.com', decision: 'rejected', n: 1 },
+    { source_host: 'a.example.com', decision: 'rejected', n: 2 },
+  ];
+  assert.deepEqual(precisionByHost(rows), [
+    { host: 'a.example.com', approved: 0, rejected: 2, decided: 2, precision: 0 },
+    { host: 'b.example.com', approved: 3, rejected: 1, decided: 4, precision: 0.75 },
+  ]);
+  assert.deepEqual(precisionByHost([]), []);
+  assert.equal(precisionByHost([{ source_host: 'c', decision: 'other', n: 5 }])[0].precision, null);
 });

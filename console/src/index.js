@@ -9,7 +9,7 @@
 import { resolveIdentity } from './auth.js';
 import {
   ConsoleError, getMarker, getReviewer, statusStrip, queue, rowDetail, decide,
-  resolveDuplicate, editEvent, addEvent, recentDecisions, undoDecision,
+  resolveDuplicate, editEvent, addEvent, recentDecisions, undoDecision, scoutPrecision,
 } from './data.js';
 import { validateEventInput, REJECT_REASONS } from './lib.js';
 import { geocode } from './geocode.js';
@@ -79,7 +79,7 @@ async function handleApi(request, env, url) {
   let m;
 
   if (path === '/api/overview' && method === 'GET') {
-    return json(200, { strip: await statusStrip(db), queue: await queue(db) });
+    return json(200, { strip: await statusStrip(db), queue: await queue(db), precision: await scoutPrecision(db) });
   }
   if ((m = path.match(/^\/api\/events\/([0-9a-zA-Z-]+)$/)) && method === 'GET') {
     return json(200, await rowDetail(db, m[1]));
