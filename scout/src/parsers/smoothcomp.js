@@ -313,7 +313,12 @@ export function parseListingEvents(html, { url, allowedHosts = [SOURCE_HOST] } =
     const name = typeof raw.title === 'string' ? raw.title.trim() : '';
     const startDate = typeof raw.startdate === 'string' ? raw.startdate.slice(0, 10) : '';
     const endDate = typeof raw.enddate === 'string' && raw.enddate ? raw.enddate.slice(0, 10) : null;
-    const city = typeof raw.location_city === 'string' ? raw.location_city.trim() : '';
+    // Smoothcomp's listing puts the whole place in one field, sometimes
+    // with the state or country appended ("Springfield, MO", "Fargo, North
+    // Dakota"). `city` is the city, so the trailing qualifier is dropped --
+    // otherwise the console renders "Springfield, MO, MO, US". The state is
+    // derived from coordinates regardless, never read from this string.
+    const city = typeof raw.location_city === 'string' ? raw.location_city.split(',')[0].trim() : '';
     const country = typeof raw.location_country === 'string' ? raw.location_country.trim().toUpperCase() : '';
     const lat = Number(raw.location_lat);
     const lon = Number(raw.location_long);

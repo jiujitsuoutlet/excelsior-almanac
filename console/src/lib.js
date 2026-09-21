@@ -2,6 +2,19 @@
 
 export const SECONDS_PER_ROW = 20;
 
+// The founder's own review footprint: Missouri and the eight states that
+// border it (ARCHITECTURE.md's Step 2 scope, "Tier 1 only, Missouri and its
+// eight bordering states"). A crawl that reaches six national organizers
+// returns far more than that -- 269 rows on the first real run, 42 of them
+// here -- and the rows that matter to this academy are the ones a member
+// could actually drive to. They sort first, so a review session is the
+// footprint, not the whole country.
+export const FOOTPRINT_STATES = ['MO', 'AR', 'IA', 'IL', 'KS', 'KY', 'NE', 'OK', 'TN'];
+
+export function inFootprint(event) {
+  return FOOTPRINT_STATES.includes(String(event?.state ?? '').toUpperCase());
+}
+
 export const EVENT_TYPES = ['tournament', 'superfight', 'seminar', 'camp', 'open_competition'];
 
 // Reject reasons, keyed by the number the reviewer presses after R.
@@ -22,6 +35,17 @@ export const EDITABLE_FIELDS = [
   'event_type', 'name', 'organizer_name', 'start_date', 'end_date', 'venue_name', 'address',
   'city', 'state', 'country', 'registration_url', 'registration_deadline', 'gi', 'nogi', 'kids',
 ];
+
+// Two numbers, because they mean different things: what is in front of you
+// now, and what the whole queue holds.
+export function footprintHeadline(footprintCount, totalCount) {
+  if (totalCount === 0) return 'Nothing to review';
+  if (footprintCount === 0) return `Nothing in your footprint. ${totalCount} row${totalCount === 1 ? '' : 's'} elsewhere.`;
+  const minutes = Math.max(1, Math.round((footprintCount * SECONDS_PER_ROW) / 60));
+  const rest = totalCount - footprintCount;
+  const tail = rest > 0 ? `, then ${rest} outside it` : '';
+  return `${footprintCount} row${footprintCount === 1 ? '' : 's'} in your footprint, about ${minutes} minute${minutes === 1 ? '' : 's'}${tail}`;
+}
 
 export function queueHeadline(count) {
   if (count === 0) return 'Nothing to review';
