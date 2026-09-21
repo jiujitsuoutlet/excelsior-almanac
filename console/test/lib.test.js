@@ -135,3 +135,28 @@ test('precision is approved over decided per host, and null (not 0 or 1) with no
   assert.deepEqual(precisionByHost([]), []);
   assert.equal(precisionByHost([{ source_host: 'c', decision: 'other', n: 5 }])[0].precision, null);
 });
+
+test('a structural link check never renders as a live one, and keeps the row out of plain-A range', () => {
+  const event = { registration_url: 'https://fujibjj.smoothcomp.com/en/event/1', link_check_method: 'structural', city: 'Independence', state: 'MO', country: 'US', name: 'X', start_date: '2027-01-01' };
+  assert.equal(chipFor('registration_url', event, []), 'structural');
+  // even with a passing live signal recorded, the row's own method wins
+  const signals = [{ id: 1, signal: 'link_live', passed: 1, evidence: { url: event.registration_url } }];
+  assert.equal(chipFor('registration_url', event, signals), 'structural');
+  const chips = { name: 'green', start_date: 'green', location: 'green', registration_url: 'structural' };
+  const eligibility = approvalEligibility(chips, { unresolved: [] }, event);
+  assert.equal(eligibility.plain, false, 'a structurally-checked link must need the deliberate Shift+A');
+  assert.ok(eligibility.reasons.some((r) => /Registration link/.test(r)));
+});
+
+test('a derived state renders as derived, not as found-on-page', () => {
+  const event = { state_source: 'derived', city: 'Independence', state: 'MO', country: 'US', registration_url: 'https://x.smoothcomp.com/en/event/1' };
+  assert.equal(chipFor('location', event, []), 'derived');
+  const chips = { name: 'green', start_date: 'green', location: 'derived', registration_url: 'green' };
+  assert.equal(approvalEligibility(chips, { unresolved: [] }, event).plain, false);
+});
+
+test('a scraped, live row is unaffected -- the new states never weaken an existing green', () => {
+  const event = { registration_url: 'https://smoothcomp.com/en/event/1/register', city: 'Testburg', state: 'MO', country: 'US' };
+  const signals = [{ id: 1, signal: 'link_live', passed: 1, evidence: { url: event.registration_url } }];
+  assert.equal(chipFor('registration_url', event, signals), 'green');
+});

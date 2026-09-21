@@ -164,10 +164,21 @@ export function validateEventInput(input, { partial = false } = {}) {
 export function chipFor(field, event, signals) {
   if (field === 'registration_url') {
     if (!event.registration_url) return 'amber';
+    // A structurally-checked link is NOT a live one and must never render
+    // as one (founder ruling, 2026-09-20 -- the fail-closed law). The host
+    // refuses us, so all that was confirmed is that the URL is well-formed,
+    // https and on an approved alias. Its own chip colour says so, and it
+    // is not green, so a row carrying one can never be approved with a
+    // plain A -- it needs the deliberate Shift+A.
+    if (event.link_check_method === 'structural') return 'structural';
     const live = latest(signals, (s) => s.signal === 'link_live' && s.evidence?.url === event.registration_url);
     if (!live) return 'grey';
     return live.passed === 1 ? 'green' : 'amber';
   }
+  // A derived state was reverse-matched from coordinates, not read off the
+  // page. Location is a critical field, so this keeps it out of plain-A
+  // range while still showing the reviewer it is a real, recorded answer.
+  if (field === 'location' && event.state_source === 'derived') return 'derived';
   const current = field === 'location' ? `${event.city}, ${event.state}, ${event.country}` : event[field];
   const check = latest(signals, (s) => s.signal === 'grounding' && s.evidence?.field === field);
   if (!check) return 'grey';
@@ -198,10 +209,12 @@ export function duplicateState(event, candidates, signals) {
   return { candidates: similar, unresolved };
 }
 
+export const WEAKER_CHIPS = { structural: 'Structural', derived: 'Derived' };
+
 // A plain A is allowed only when every critical field is green and no
 // duplicate is unresolved. Everything else needs the deliberate Shift+A.
 const FIELD_LABELS = { name: 'Name', start_date: 'Date', location: 'Location', registration_url: 'Registration link' };
-const CHIP_WORDS = { amber: 'not confirmed', grey: 'not checked' };
+const CHIP_WORDS = { amber: 'not confirmed', grey: 'not checked', structural: 'link not verified live (host refuses us)', derived: 'state derived from coordinates, not stated on the page' };
 
 // Hard blockers: things the database will refuse outright, whatever the
 // reviewer presses. Each names the field, the rule, and the way out.

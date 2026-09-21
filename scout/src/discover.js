@@ -40,7 +40,7 @@ export const PARSERS = { 'src-smoothcomp': smoothcomp };
  *   that don't care; the real crawl always wires this to a real pause.
  * @returns {Promise<{ attempted: number, discovered: number, skipped: Array<{host:string, reason:string}>, deactivated: string[] }>}
  */
-export async function runDiscovery({ now, fetchImpl, loadActiveAliasesWithSource, claimSlot, enqueueDiscovered, recordSkip = () => {}, deactivateSource = async () => {} }) {
+export async function runDiscovery({ now, fetchImpl, loadActiveAliasesWithSource, claimSlot, enqueueDiscovered, upsertListingDrafts, recordSkip = () => {}, deactivateSource = async () => {} }) {
   if (typeof fetchImpl !== 'function') throw new Error('runDiscovery requires an injected fetchImpl');
   if (typeof loadActiveAliasesWithSource !== 'function') throw new Error('runDiscovery requires loadActiveAliasesWithSource');
   if (typeof claimSlot !== 'function') throw new Error('runDiscovery requires claimSlot');
@@ -49,7 +49,9 @@ export async function runDiscovery({ now, fetchImpl, loadActiveAliasesWithSource
   const aliases = await loadActiveAliasesWithSource();
   let attempted = 0;
   let discovered = 0;
+  let drafted = 0;
   const skipped = [];
+  const unresolved = [];
   const deactivated = [];
   // Per-company, for this run only: a 403/429/503 from one alias is a
   // signal about the COMPANY (section 9's shared clock is per-company for
@@ -134,6 +136,30 @@ export async function runDiscovery({ now, fetchImpl, loadActiveAliasesWithSource
       continue;
     }
 
+    // A 'listing_only' source (founder ruling, 2026-09-20: Smoothcomp's
+    // event pages 403 us, so "build drafts from listing data only, and
+    // never fetch the event page") turns this one listing fetch straight
+    // into draft rows. No discovered_pages entry is made for it -- there is
+    // no second fetch to queue, and a queue of pages nobody may fetch is a
+    // lie about what this crawl intends to do.
+    if (alias.source.crawl_mode === 'listing_only') {
+      if (typeof upsertListingDrafts !== 'function') {
+        skipped.push({ host: alias.host, reason: 'this source is listing_only but no listing-draft writer was wired in' });
+        continue;
+      }
+      const { events, dropped: listingDropped } = parser.parseListingEvents(response.body, {
+        url: listingUrl,
+        allowedHosts: hostsBySourceId[alias.source.id],
+      });
+      // eslint-disable-next-line no-await-in-loop
+      const outcome = await upsertListingDrafts({ source: alias.source, host: alias.host, events });
+      discovered += events.length;
+      drafted += outcome?.written ?? 0;
+      for (const u of outcome?.unresolved ?? []) unresolved.push(u);
+      for (const d of listingDropped) skipped.push({ host: alias.host, reason: `listing entry dropped: ${d.reason}` });
+      continue;
+    }
+
     const { eventUrls } = parser.parseListingPage(response.body, {
       url: listingUrl,
       allowedHosts: hostsBySourceId[alias.source.id],
@@ -145,5 +171,5 @@ export async function runDiscovery({ now, fetchImpl, loadActiveAliasesWithSource
     }
   }
 
-  return { attempted, discovered, skipped, deactivated };
+  return { attempted, discovered, drafted, skipped, unresolved, deactivated };
 }

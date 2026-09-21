@@ -4,6 +4,7 @@
 // d1SourceLoader/d1AliasLoader already established.
 
 import { claimRateLimitSlot, minIntervalSeconds } from './limiter.js';
+import { boundingBox } from './geo.js';
 import { applyEventUpsert } from './ingest.js';
 
 function realSleep(ms) {
@@ -186,6 +187,16 @@ export function d1MarkPageFetched(db) {
       .run();
 }
 
+// 'excluded' is the status for a page this crawl will never fetch -- not a
+// failure, and not left pending forever pretending it is still queued.
+export function d1MarkPageExcluded(db) {
+  return (pageId, reason) =>
+    db
+      .prepare(`UPDATE discovered_pages SET status = 'excluded', fetched_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), fail_reason = ?2 WHERE id = ?1`)
+      .bind(pageId, reason)
+      .run();
+}
+
 export function d1MarkPageFailed(db) {
   return (pageId, reason) =>
     db
@@ -217,6 +228,7 @@ export function d1StaleApprovedLinksLoader(db) {
     const { results } = await db
       .prepare(
         `SELECT e.id AS event_id, e.source_url AS source_url, e.source_host AS event_source_host,
+                e.registration_url AS event_registration_url, e.link_check_method AS link_check_method,
                 s.*
          FROM events e
          JOIN (
@@ -236,6 +248,8 @@ export function d1StaleApprovedLinksLoader(db) {
     return results.map((r) => ({
       id: r.event_id,
       sourceUrl: r.source_url,
+      registrationUrl: r.event_registration_url,
+      linkCheckMethod: r.link_check_method,
       host: r.event_source_host,
       sourceId: r.id,
       source: { ...r, id: r.id },
@@ -243,8 +257,13 @@ export function d1StaleApprovedLinksLoader(db) {
   };
 }
 
+// `method` is recorded alongside the timestamp, never inferred later: a row
+// that was only structurally checked must not become indistinguishable from
+// one that answered a real 200 (founder ruling, 2026-09-20 -- the
+// fail-closed law).
 export function d1MarkLinkLive(db) {
-  return (eventId, nowIso) => db.prepare(`UPDATE events SET link_checked_at = ?1 WHERE id = ?2`).bind(nowIso, eventId).run();
+  return (eventId, nowIso, method = 'live') =>
+    db.prepare(`UPDATE events SET link_checked_at = ?1, link_check_method = ?2 WHERE id = ?3`).bind(nowIso, method, eventId).run();
 }
 
 // Rule 4 (section 9): a daily robots.txt hash check, per alias. Same hash
@@ -275,4 +294,20 @@ export function d1DemoteDeadLink(db) {
         .bind(eventId, actor),
       db.prepare(`UPDATE events SET link_checked_at = ?1 WHERE id = ?2`).bind(nowIso, eventId),
     ]);
+}
+
+// The gazetteer read behind geo.js's deriveState: a small bounding box
+// around one point, never the whole table. geo.js then does exact haversine
+// over the handful of rows this returns, so the SQL never has to be trusted
+// to compute distance correctly.
+export function d1NearbyPlaces(db) {
+  return async (lat, lon, km) => {
+    const box = boundingBox(lat, lon, km);
+    const { results } = await db
+      .prepare(`SELECT geoname_id, city, state, lat, lon FROM places
+                WHERE lat BETWEEN ?1 AND ?2 AND lon BETWEEN ?3 AND ?4`)
+      .bind(box.minLat, box.maxLat, box.minLon, box.maxLon)
+      .all();
+    return results;
+  };
 }

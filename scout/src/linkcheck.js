@@ -30,6 +30,7 @@
 // requesting the registration/checkout flow itself.
 
 import { checkSource } from './gate.js';
+import { structuralLinkVerdict } from './structural.js';
 import { groundPage } from './grounding.js';
 import { fetchOnce, FetchRefused } from './fetcher.js';
 import * as smoothcomp from './parsers/smoothcomp.js';
@@ -75,6 +76,8 @@ export async function runLinkCheck({
 
   let checked = 0;
   let confirmedLive = 0;
+  let structural = 0;
+  const approvedHosts = new Set(links.map((l) => l.host));
   let demoted = 0;
   const skipped = [];
   const nowIso = new Date(now).toISOString();
@@ -99,6 +102,28 @@ export async function runLinkCheck({
     }
     if (backedOff.has(link.source.id)) {
       skipped.push({ id: link.id, reason: 'this company backed off earlier in this same run; not tried again tonight' });
+      continue;
+    }
+
+    // A structurally-checked row (founder ruling, 2026-09-20) is never
+    // fetched: its registration URL is a Smoothcomp event page, and those
+    // 403 us. All this can honestly confirm is that the URL is well-formed,
+    // https, and on an approved alias -- so that is all it claims, and
+    // link_check_method stays 'structural' on the row so the console can
+    // render it as the weaker thing it is. No slot is claimed, because no
+    // request is made.
+    if (link.linkCheckMethod === 'structural') {
+      const verdict = structuralLinkVerdict(link.registrationUrl ?? link.sourceUrl, approvedHosts);
+      if (verdict.ok) {
+        // eslint-disable-next-line no-await-in-loop
+        await markLinkLive(link.id, nowIso, 'structural');
+        structural += 1;
+      } else {
+        // eslint-disable-next-line no-await-in-loop
+        await demoteDeadLink(link.id, nowIso, `structural link check failed: ${verdict.reason}`, 'system:scout-linkcheck');
+        demoted += 1;
+      }
+      checked += 1;
       continue;
     }
 
@@ -161,7 +186,7 @@ export async function runLinkCheck({
     const parsed = parser.parseEventPage(response.body, { url: link.sourceUrl });
     if (parsed.ok && parsed.event.registrationUrl) {
       // eslint-disable-next-line no-await-in-loop
-      await markLinkLive(link.id, nowIso);
+      await markLinkLive(link.id, nowIso, 'live');
       confirmedLive += 1;
     } else {
       const reason = parsed.ok
@@ -173,5 +198,5 @@ export async function runLinkCheck({
     }
   }
 
-  return { checked, confirmedLive, demoted, skipped };
+  return { checked, confirmedLive, structural, demoted, skipped };
 }

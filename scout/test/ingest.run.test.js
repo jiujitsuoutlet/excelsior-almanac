@@ -193,3 +193,20 @@ test('a source the gate refuses is failed with the gate\'s own reason, never fet
   assert.equal(result.failed.length, 1);
   assert.match(failedReasons[0], /page types/);
 });
+
+test("a listing_only source's queued event pages are NEVER fetched -- they are drained as excluded", async () => {
+  const p1 = { ...page('pg-1', 1), source: { ...ALLOWED_SOURCE, crawl_mode: 'listing_only' } };
+  const excluded = [];
+  const result = await runIngest({
+    now: 1_000_000,
+    fetchImpl: async () => { throw new Error('must never be called: a listing_only source never has its event page fetched'); },
+    claimSlot: async () => { throw new Error('must never be called'); },
+    loadPendingPages: async () => [p1],
+    markPageExcluded: async (id, reason) => excluded.push({ id, reason }),
+    ...noopDeps(),
+  });
+  assert.equal(result.fetched, 0);
+  assert.equal(result.excluded, 1);
+  assert.equal(excluded[0].id, 'pg-1');
+  assert.match(excluded[0].reason, /listing_only/);
+});

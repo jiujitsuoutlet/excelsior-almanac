@@ -247,6 +247,142 @@ export function parseListingPage(html, { url, allowedHosts = [SOURCE_HOST] } = {
   return { eventUrls, dropped };
 }
 
+// ---- listing pages, as a SOURCE OF FACTS ----
+
+// Smoothcomp's federation listing pages carry a `var events = [...]` array
+// server-side, holding exactly the facts the matcher needs: title, url,
+// start/end date, city, country and coordinates. Founder ruling
+// (2026-09-20): build drafts from this, and never fetch the event page,
+// which returns 403 to us.
+//
+// Read as DATA, never executed: the array text is sliced out by bracket
+// depth and handed to JSON.parse, the same discipline as the JSON-LD
+// readers above. A malformed or truncated array yields no events, never a
+// throw.
+const LISTING_EVENTS_VAR = /var\s+events\s*=\s*\[/;
+
+function sliceJsonArray(html, startIndex) {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = startIndex; i < html.length; i += 1) {
+    const ch = html[i];
+    if (escaped) { escaped = false; continue; }
+    if (inString) {
+      if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '[') depth += 1;
+    else if (ch === ']') {
+      depth -= 1;
+      if (depth === 0) return html.slice(startIndex, i + 1);
+    }
+  }
+  return null;
+}
+
+function listingEventObjects(html) {
+  const match = LISTING_EVENTS_VAR.exec(html);
+  if (!match) return [];
+  const text = sliceJsonArray(html, match.index + match[0].length - 1);
+  if (!text) return [];
+  try {
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+// Facts only, same rule as parseEventPage: no description, no prose, no
+// person. `state` is deliberately absent -- the listing does not carry it,
+// and it is derived from the coordinates by the caller (scout/src/geo.js),
+// never guessed here.
+export function parseListingEvents(html, { url, allowedHosts = [SOURCE_HOST] } = {}) {
+  const safeHtml = typeof html === 'string' ? html : '';
+  const events = [];
+  const dropped = [];
+  for (const raw of listingEventObjects(safeHtml)) {
+    const verdict = classifyUrl(String(raw?.url ?? ''), { base: url, allowedHosts });
+    if (!verdict.ok) {
+      dropped.push({ url: String(raw?.url ?? ''), reason: verdict.reason });
+      continue;
+    }
+    const name = typeof raw.title === 'string' ? raw.title.trim() : '';
+    const startDate = typeof raw.startdate === 'string' ? raw.startdate.slice(0, 10) : '';
+    const endDate = typeof raw.enddate === 'string' && raw.enddate ? raw.enddate.slice(0, 10) : null;
+    const city = typeof raw.location_city === 'string' ? raw.location_city.trim() : '';
+    const country = typeof raw.location_country === 'string' ? raw.location_country.trim().toUpperCase() : '';
+    const lat = Number(raw.location_lat);
+    const lon = Number(raw.location_long);
+
+    const missing = [];
+    if (!name) missing.push('name');
+    if (!startDate) missing.push('start date');
+    if (!city) missing.push('city');
+    if (country.length !== 2) missing.push('country');
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) missing.push('coordinates');
+    if (missing.length > 0) {
+      dropped.push({ url: verdict.url.toString(), reason: `listing entry is missing required field(s): ${missing.join(', ')}` });
+      continue;
+    }
+    if (!isRealDate(startDate)) {
+      dropped.push({ url: verdict.url.toString(), reason: `the start date "${startDate}" is not a real calendar date` });
+      continue;
+    }
+    if (endDate && (!isRealDate(endDate) || endDate < startDate)) {
+      dropped.push({ url: verdict.url.toString(), reason: `the end date "${endDate}" is not a real date on or after the start date` });
+      continue;
+    }
+    events.push({ name, startDate, endDate, city, country, lat, lon, sourceUrl: verdict.url.toString(), sourceEventRef: (verdict.url.pathname.match(EVENT_ID_FROM_URL) ?? [])[1] ?? null });
+  }
+  return { events, dropped };
+}
+
+// A draft row built from LISTING data only. Differences from toDraftRow, all
+// deliberate and all recorded in the row itself rather than left implied:
+//
+//   - `state` is supplied by the caller from the gazetteer match, and
+//     state_source says 'derived' so a reviewer knows it was not on the page.
+//   - registration_url is the event page URL. That page 403s us, so we
+//     cannot and do not claim a live check: link_check_method is
+//     'structural'. The console renders that differently on purpose.
+//   - gi/nogi/kids stay 0 and the divisions are unknown; the matcher
+//     downranks an unconfirmed division, as ruled.
+//   - venue_name, address, organizer_name and registration_deadline are not
+//     on the listing, so they are null rather than invented.
+export function toListingDraftRow(candidate, { state }) {
+  return {
+    id: crypto.randomUUID(),
+    event_type: 'tournament',
+    name: candidate.name,
+    organizer_name: null,
+    start_date: candidate.startDate,
+    end_date: candidate.endDate ?? null,
+    venue_name: null,
+    address: null,
+    city: candidate.city,
+    state,
+    country: candidate.country,
+    lat: candidate.lat,
+    lon: candidate.lon,
+    registration_url: candidate.sourceUrl,
+    registration_deadline: null,
+    gi: 0,
+    nogi: 0,
+    kids: 0,
+    source_url: candidate.sourceUrl,
+    source_host: hostOf(candidate.sourceUrl),
+    source_event_ref: candidate.sourceEventRef ?? null,
+    source_tier: 1,
+    state_source: 'derived',
+    link_check_method: 'structural',
+    dedupe_key: dedupeKey({ name: candidate.name, start_date: candidate.startDate, country: candidate.country, state, city: candidate.city }),
+  };
+}
+
 // ---- event detail pages ----
 
 // Facts only, per ARCHITECTURE.md section 6 / the terms review: name,
