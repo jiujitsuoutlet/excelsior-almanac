@@ -133,15 +133,20 @@ else
     || bad "expected 0 total pages_fetched with zero active aliases seeded, got $TOTAL_FETCHED"
 fi
 
-echo "== phase C: production's own two inertness gates, re-confirmed on the real config file"
-# Only the PRODUCTION section (everything before the first [env.*] table)
-# is checked here -- staging may carry its own SCOUT_ENABLED/[triggers]
-# once the founder authorizes a real staging run; production's gates are
-# the ones that may never move without his separate, explicit word.
+echo "== phase C: production's scheduling is all-or-nothing, never half-on"
+# Production was enabled on the founder's word (2026-09-21). The invariant
+# that outlives that decision: SCOUT_ENABLED and a cron trigger move
+# TOGETHER. Enabled with no trigger ships a Worker that looks live and never
+# runs; a trigger with it disabled fires a handler that refuses every night.
+# Either half-state is a lie about what production is doing.
 PROD_SECTION=$(awk '/^\[env\./{exit} {print}' scout/wrangler.toml)
-echo "$PROD_SECTION" | grep -q 'SCOUT_ENABLED = "false"' && ok "production's own SCOUT_ENABLED still defaults to false" || bad "production's own SCOUT_ENABLED default is not false"
-echo "$PROD_SECTION" | grep -q '^\[triggers\]' && bad "a [triggers] section now exists in production's own config -- a cron trigger must never appear there without the founder's own explicit, separate step" \
-  || ok "no [triggers] section exists in production's own config -- nothing schedules the production Worker"
+ENABLED=$(echo "$PROD_SECTION" | grep -c 'SCOUT_ENABLED = "true"')
+TRIGGERED=$(echo "$PROD_SECTION" | grep -c '^\[triggers\]')
+if [ "$ENABLED" = "$TRIGGERED" ]; then
+  if [ "$ENABLED" = 1 ]; then ok "production is consistently enabled, with a cron trigger"; else ok "production is consistently inert, with no trigger"; fi
+else
+  bad "production is half-on: SCOUT_ENABLED=true count $ENABLED, [triggers] count $TRIGGERED"
+fi
 
 echo "== result: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

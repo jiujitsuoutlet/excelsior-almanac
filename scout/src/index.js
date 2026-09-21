@@ -18,10 +18,11 @@
 // aliases (today's real state; ALMANAC has never activated one) is a
 // legitimate, fully-exercised empty run, not a skipped one.
 //
-// Gates (see scout/wrangler.toml): production is inert -- SCOUT_ENABLED
-// "false", no Cron Trigger -- until the founder's one release gate. Staging
-// runs nightly (authorized 2026-09-20). scheduled() refuses unless
-// env.SCOUT_ENABLED is exactly "true".
+// Gates (see scout/wrangler.toml): staging and production both run nightly
+// (staging authorized 2026-09-20, production 2026-09-21 after a clean
+// unattended staging tick). scheduled() still refuses unless
+// env.SCOUT_ENABLED is exactly "true". Nothing this Worker writes can reach a
+// member: every row lands needs_review, and only a human reviewer approves.
 
 import { runRobotsRecheck } from './robotscheck.js';
 import { runDiscovery } from './discover.js';
