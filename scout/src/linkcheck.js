@@ -112,7 +112,15 @@ export async function runLinkCheck({
     // link_check_method stays 'structural' on the row so the console can
     // render it as the weaker thing it is. No slot is claimed, because no
     // request is made.
-    if (link.linkCheckMethod === 'structural') {
+    // Keyed on the SOURCE's crawl_mode as well as the row's own method.
+    // Found in production (2026-09-21): a legacy approved row that pre-dated
+    // the link_check_method column (NULL) became eligible for a check the
+    // moment its host went active as an alias; NULL fell through to a LIVE
+    // fetch of a Smoothcomp event page, took the 403 and paused the whole
+    // source. For a listing_only source no event page is ever fetched, by
+    // any phase, whatever an individual row says -- the same rule ingest
+    // already obeys.
+    if (link.linkCheckMethod === 'structural' || link.source?.crawl_mode === 'listing_only') {
       const verdict = structuralLinkVerdict(link.registrationUrl ?? link.sourceUrl, approvedHosts);
       if (verdict.ok) {
         // eslint-disable-next-line no-await-in-loop

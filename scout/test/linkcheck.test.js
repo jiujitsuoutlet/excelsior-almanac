@@ -273,3 +273,29 @@ test('loadStaleApprovedLinks receives the real stale-before cutoff and a bounded
   assert.equal(seenArgs.staleBeforeIso, new Date(1_000_000_000 - 86_400_000).toISOString());
   assert.equal(seenArgs.limit, 7);
 });
+
+test('A LISTING_ONLY SOURCE IS NEVER LIVE-FETCHED, even for a legacy row with no link_check_method (the real production NAGA case)', async () => {
+  const legacy = {
+    ...LINK,
+    id: 'naga-nashville-grappling-championship-2026-10-31',
+    sourceUrl: 'https://naga.smoothcomp.com/en/event/32996',
+    registrationUrl: 'https://naga.smoothcomp.com/en/event/32996',
+    host: 'naga.smoothcomp.com',
+    linkCheckMethod: null,
+    source: { ...ALLOWED_SOURCE, crawl_mode: 'listing_only' },
+  };
+  const { live, demoted, deactivated, markLinkLive, demoteDeadLink, deactivateSource } = fakeState();
+  const result = await runLinkCheck({
+    now: 1_000_000,
+    fetchImpl: async () => { throw new Error('must never be called: a listing_only source is never fetched'); },
+    claimSlot: async () => { throw new Error('must never be called: no request, no slot'); },
+    loadStaleApprovedLinks: async () => [legacy],
+    markLinkLive,
+    demoteDeadLink,
+    deactivateSource,
+  });
+  assert.equal(result.structural, 1);
+  assert.equal(deactivated.length, 0, 'the source must not be paused by a check that should never have fetched');
+  assert.equal(demoted.length, 0);
+  assert.equal(live.length, 1);
+});
