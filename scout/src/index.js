@@ -158,7 +158,11 @@ async function runCrawlCycle(env) {
       demoteDeadLink: d1DemoteDeadLink(env.DB),
       deactivateSource,
     });
-    await closeRun({ runId: linkCheckRunId, status: 'succeeded', finishedAt: Date.now(), pagesFetched: linkCheckResult.checked, errors: linkCheckResult.demoted, hostsSkipped: 0 });
+    // pages_fetched counts real requests only. A structural check makes no
+    // request, so counting it here would report a fetch that never happened
+    // (found in production 2026-09-21: "pages_fetched: 1" for a cycle that
+    // touched no event page at all).
+    await closeRun({ runId: linkCheckRunId, status: 'succeeded', finishedAt: Date.now(), pagesFetched: linkCheckResult.checked - (linkCheckResult.structural ?? 0), errors: linkCheckResult.demoted, hostsSkipped: 0 });
   } catch (err) {
     await closeRun({ runId: linkCheckRunId, status: 'failed', finishedAt: Date.now(), pagesFetched: 0, errors: 1, hostsSkipped: 0 });
     throw err;
