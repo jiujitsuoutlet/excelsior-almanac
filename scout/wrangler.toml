@@ -1,10 +1,15 @@
 # ALMANAC scout Worker configuration.
 #
-# Production: deliberately no [triggers] section, and SCOUT_ENABLED stays
-# "false" below. The standing "production stays untouched until the one
-# gate" rule (this program's own rule, reconfirmed 2026-09-19) covers this
-# environment; only the founder's own explicit, separate word moves it,
-# never a side effect of any other change (see src/index.js).
+# Production: ENABLED 2026-09-21 on the founder's word, after the first
+# unattended staging tick ran clean (07:00:36 UTC: robots 6/6, discovery 6
+# listings at 10 s spacing, 266 rows re-seen and 0 changed, 0 event pages
+# fetched, source still active). The ruling: "deploy Scout against
+# PRODUCTION ALMANAC D1. Nothing reaches a member without my Shift+A, so
+# production crawl is safe behind the existing gate." Every crawled row
+# lands needs_review; needs_review -> approved is system_allowed = 0.
+# Production runs listing_only (sources.crawl_mode), same as staging:
+# drafts from listing pages, never an event page. The app's own release
+# (Supabase migrations, --prod promotion) is still the founder's one gate.
 #
 # Staging: authorized 2026-09-19, after the Opus adversarial review of the
 # whole crawl path closed all twelve blocking findings it raised (see
@@ -19,8 +24,8 @@
 # deviating from the documented schedule. Today (2026-09-19) zero
 # source_aliases rows exist in any environment, so this cron finds
 # nothing to fetch until a human activates one (ARCHITECTURE.md section 9
-# rule 5) -- see docs/VERIFICATION.md for the honest account of what this
-# authorizes and what it does not.
+# rule 5). Six organizer aliases were activated 2026-09-20 under the
+# founder's subdomain-terms rule; see docs/VERIFICATION.md.
 #
 # Identifiers only; no secrets here (hold 1). Same Cloudflare account as the
 # console and the rest of ALMANAC (MAD v2.55).
@@ -30,8 +35,13 @@ compatibility_date = "2026-09-01"
 account_id = "bbe6d5f6cc43632eafdd5ef854f48a25"
 
 [vars]
-# Nothing sets this to "true" for production anywhere in this repository. See src/index.js.
-SCOUT_ENABLED = "false"
+SCOUT_ENABLED = "true"
+
+# 07:00 UTC = 02:00 America/Chicago during CDT, the start of ARCHITECTURE.md
+# section 9's documented Tier 1 window. Workers cron has no DST; revisit the
+# UTC offset each November/March.
+[triggers]
+crons = ["0 7 * * *"]
 
 [[d1_databases]]
 binding = "DB"
