@@ -10,15 +10,10 @@
 // enqueueDiscovered, now), the same seam run.js already uses, so this can
 // be unit-tested with no real network and no real database.
 
-import { checkSource } from './gate.js';
 import { groundPage } from './grounding.js';
-import { fetchOnce, FetchRefused } from './fetcher.js';
-import * as smoothcomp from './parsers/smoothcomp.js';
-
-// Which parser owns a given source id. One entrant today, on purpose --
-// see the identical note in ingest.js. Both files share this registry
-// rather than each guessing independently.
-export const PARSERS = { 'src-smoothcomp': smoothcomp };
+import { FetchRefused } from './fetcher.js';
+import { gatedFetch } from './fetchgate.js';
+import { parserForSource } from './parsers/index.js';
 
 /**
  * @param {object} deps
@@ -61,60 +56,44 @@ export async function runDiscovery({ now, fetchImpl, loadActiveAliasesWithSource
   // deactivateSource makes durable across runs too.
   const backedOff = new Set();
 
-  // All active aliases of the same source, needed so parseListingPage
-  // accepts a link to ANY of the company's reviewed subdomains, not just
-  // the one currently being fetched (section 9: one company review, many
-  // hostnames).
-  const hostsBySourceId = {};
-  for (const a of aliases) (hostsBySourceId[a.source.id] ??= []).push(a.host);
+  // All active aliases of the same source: parseListingPage accepts a link
+  // to ANY of the company's reviewed subdomains (section 9: one company
+  // review, many hostnames), and the fetch gate needs the same list to know
+  // which hosts and listing paths are reviewed at all.
+  const aliasesBySource = {};
+  for (const a of aliases) (aliasesBySource[a.source.id] ??= []).push({ host: a.host, listingPath: a.listingPath });
 
   for (const alias of aliases) {
-    const gate = checkSource(alias.source);
-    if (!gate.allowed) {
-      skipped.push({ host: alias.host, reason: gate.reason });
-      recordSkip(alias.host, gate.reason);
-      continue;
-    }
-    const parser = PARSERS[alias.source.id];
-    if (!parser) {
-      skipped.push({ host: alias.host, reason: `no parser registered for source ${alias.source.id}` });
-      continue;
-    }
-
     if (backedOff.has(alias.source.id)) {
       skipped.push({ host: alias.host, reason: 'this company backed off earlier in this same run; not tried again tonight' });
       continue;
     }
 
-    // eslint-disable-next-line no-await-in-loop -- one company's clock at a time, on purpose
-    const claimed = await claimSlot(alias.source, now);
-    if (!claimed) {
+    // Whether this may be fetched at all -- terms gate, active alias,
+    // reviewed listing path, the shared clock -- is decided in ONE place,
+    // fetchgate.js, never here (founder ruling, 2026-09-21).
+    const listingUrl = `https://${alias.host}${alias.listingPath}`;
+    let result;
+    try {
+      // eslint-disable-next-line no-await-in-loop -- rate-limited, sequential on purpose
+      result = await gatedFetch(listingUrl, { source: alias.source, aliases: aliasesBySource[alias.source.id], fetchImpl, claimSlot, now });
+    } catch (err) {
+      attempted += 1;
+      skipped.push({ host: alias.host, reason: err instanceof FetchRefused ? `listing fetch refused: ${err.message}` : `fetch failed: ${err?.message ?? err}` });
+      continue;
+    }
+    if (result.refused) {
+      skipped.push({ host: alias.host, reason: result.refused.reason });
+      recordSkip(alias.host, result.refused.reason);
+      continue;
+    }
+    if (result.rateLimited) {
       skipped.push({ host: alias.host, reason: 'rate limit slot already claimed (by this run or a concurrent one)' });
       continue;
     }
-
     attempted += 1;
-    const listingUrl = `https://${alias.host}${alias.listingPath}`;
-    // No pathAllowed callback here on purpose: listing_path is a human-
-    // set value from the alias's own activation review (section 9 rule
-    // 5), not a link discovered from crawled content. Every link the
-    // listing page itself contains still gets the full classifyUrl/
-    // EXCLUDED_PATH_RULES treatment below, via parseListingPage -- this
-    // fetch is only trusted because a human already looked at this exact
-    // path before it went active.
-
-    let response;
-    try {
-      // eslint-disable-next-line no-await-in-loop -- rate-limited, sequential on purpose; fetcher.js enforces host-allowlist/timeout/byte-cap/redirect-refusal
-      response = await fetchOnce(listingUrl, { fetchImpl, allowHost: alias.host, now: () => now });
-    } catch (err) {
-      if (err instanceof FetchRefused) {
-        skipped.push({ host: alias.host, reason: `listing fetch refused: ${err.message}` });
-      } else {
-        skipped.push({ host: alias.host, reason: `fetch failed: ${err?.message ?? err}` });
-      }
-      continue;
-    }
+    const { response } = result;
+    const parser = parserForSource(alias.source);
 
     if (response.status === 403) {
       backedOff.add(alias.source.id);
@@ -149,7 +128,7 @@ export async function runDiscovery({ now, fetchImpl, loadActiveAliasesWithSource
       }
       const { events, dropped: listingDropped } = parser.parseListingEvents(response.body, {
         url: listingUrl,
-        allowedHosts: hostsBySourceId[alias.source.id],
+        allowedHosts: aliasesBySource[alias.source.id].map((a) => a.host),
       });
       // eslint-disable-next-line no-await-in-loop
       const outcome = await upsertListingDrafts({ source: alias.source, host: alias.host, events });
@@ -162,7 +141,7 @@ export async function runDiscovery({ now, fetchImpl, loadActiveAliasesWithSource
 
     const { eventUrls } = parser.parseListingPage(response.body, {
       url: listingUrl,
-      allowedHosts: hostsBySourceId[alias.source.id],
+      allowedHosts: aliasesBySource[alias.source.id].map((a) => a.host),
     });
     if (eventUrls.length > 0) {
       // eslint-disable-next-line no-await-in-loop

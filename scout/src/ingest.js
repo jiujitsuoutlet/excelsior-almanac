@@ -7,16 +7,14 @@
 // already exists for this event and what was just parsed, exactly which
 // statements need to run. applyEventUpsert() is the thin, separately-
 // testable adapter that turns those statements into real D1 calls. This
-// split is the same seam queue.js/run.js already use -- the DECISION is
+// split keeps the DECISION
 // unit-testable with no database; only the ADAPTER touches D1's actual
 // API shape.
 
-import { checkSource } from './gate.js';
 import { groundPage } from './grounding.js';
-import { fetchOnce, FetchRefused } from './fetcher.js';
-import * as smoothcomp from './parsers/smoothcomp.js';
-
-export const PARSERS = { 'src-smoothcomp': smoothcomp };
+import { FetchRefused } from './fetcher.js';
+import { gatedFetch } from './fetchgate.js';
+import { parserForSource } from './parsers/index.js';
 
 // A detail page fetched once and never revisited can never have its
 // change-detection machinery (planEventUpsert's demote-then-update path)
@@ -164,6 +162,7 @@ export async function runIngest({
   markPageExcluded = async () => {},
   maxPages = 20,
   deactivateSource = async () => {},
+  aliasesBySource = {},
   requeueStalePages = async () => 0,
   requeueAfterMs = REQUEUE_AFTER_MS,
   requeueLimit = 20,
@@ -186,53 +185,20 @@ export async function runIngest({
   const backedOff = new Set();
 
   for (const page of pages) {
-    const gate = checkSource(page.source);
-    if (!gate.allowed) {
-      failed.push({ url: page.url, reason: gate.reason });
-      // eslint-disable-next-line no-await-in-loop
-      await markPageFailed(page.id, gate.reason);
-      continue;
-    }
-    // A 'listing_only' source's event pages are never fetched, whatever is
-    // sitting in the queue (founder ruling, 2026-09-20). Found by the first
-    // listing-mode run: rows enqueued by the EARLIER, detail-fetching
-    // architecture were still pending, so ingest dutifully fetched one,
-    // got its 403 and paused the whole source -- undoing the listing run
-    // that had just succeeded. The queue is drained as 'excluded', which is
-    // what that status is for: a page this crawl will never fetch.
-    if (page.source.crawl_mode === 'listing_only') {
-      excluded += 1;
-      // eslint-disable-next-line no-await-in-loop
-      await markPageExcluded(page.id, 'this source is listing_only; its event pages are never fetched');
-      continue;
-    }
-
-    const parser = PARSERS[page.source.id];
-    if (!parser) {
-      failed.push({ url: page.url, reason: `no parser registered for source ${page.source.id}` });
-      // eslint-disable-next-line no-await-in-loop
-      await markPageFailed(page.id, 'no parser registered');
-      continue;
-    }
-
     if (backedOff.has(page.source.id)) {
       // Left 'pending', not failed: this is our own restraint, not a
       // defect in the page, so a later run should still try it.
       continue;
     }
 
-    // eslint-disable-next-line no-await-in-loop -- one company's clock at a time
-    const claimed = await claimSlot(page.source, now);
-    if (!claimed) {
-      // Not a failure: this page stays 'pending' for a later run to try
-      // again once the shared clock allows it.
-      continue;
-    }
-
-    let response;
+    // Whether this page may be fetched at all is decided in ONE place,
+    // fetchgate.js (founder ruling, 2026-09-21). Ingest used to carry its
+    // own copies of the terms gate and the listing_only rule; link-check
+    // lacked the second copy, and that gap paused the production source.
+    let result;
     try {
-      // eslint-disable-next-line no-await-in-loop
-      response = await fetchOnce(page.url, { fetchImpl, allowHost: page.host, pathAllowed: (p) => parser.pathAllowed(p, { host: page.host }), now: () => now });
+      // eslint-disable-next-line no-await-in-loop -- one company's clock at a time
+      result = await gatedFetch(page.url, { source: page.source, aliases: aliasesBySource[page.source.id] ?? [], fetchImpl, claimSlot, now });
     } catch (err) {
       const reason = err instanceof FetchRefused ? `fetch refused: ${err.message}` : `fetch failed: ${err?.message ?? err}`;
       failed.push({ url: page.url, reason });
@@ -240,6 +206,29 @@ export async function runIngest({
       await markPageFailed(page.id, reason);
       continue;
     }
+    if (result.rateLimited) {
+      // Not a failure: this page stays 'pending' for a later run to try
+      // again once the shared clock allows it.
+      continue;
+    }
+    if (result.refused) {
+      // listing_only is not a defect in the page: it is a page this crawl
+      // will never fetch, which is exactly what 'excluded' means. Any other
+      // refusal (an unreviewed host, a gated source, an excluded path) is a
+      // failure worth a human's attention.
+      if (result.refused.code === 'listing_only') {
+        excluded += 1;
+        // eslint-disable-next-line no-await-in-loop
+        await markPageExcluded(page.id, result.refused.reason);
+      } else {
+        failed.push({ url: page.url, reason: result.refused.reason });
+        // eslint-disable-next-line no-await-in-loop
+        await markPageFailed(page.id, result.refused.reason);
+      }
+      continue;
+    }
+    const { response } = result;
+    const parser = parserForSource(page.source);
     fetched += 1;
 
     if (response.status === 403) {

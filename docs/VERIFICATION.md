@@ -834,3 +834,52 @@ registration deadline, so those are null rather than invented. Non-tournament
 entries (one "SPECTATOR TICKETS" listing) are not distinguishable from
 tournaments by any signal the listing gives; the reviewer is the filter. The
 gazetteer is US-only by construction.
+
+## The single fetch chokepoint (founder ruling, 2026-09-21)
+
+"ONE function decides whether any code path may fetch a given URL, every
+fetch in Scout goes through it, and a test proves there is no other fetch
+path. If a fourth instance of this bug is possible after that, the
+chokepoint is wrong."
+
+**Why.** One rule was written in two places and missed in a third, three
+times: link-check fetched an excluded `/order/` path while discovery and
+ingest checked it (Opus B1); link-check never ran the terms gate while the
+others did (B2); and after `listing_only` existed, ingest refused event
+pages for it but link-check did not, so a legacy approved row with a NULL
+method live-fetched a Smoothcomp event page in production and paused the
+source.
+
+**What.** `scout/src/fetchgate.js`: `decideFetch` is the only decision and
+`gatedFetch` the only request. The rules live there once: https; the source
+passes the terms gate (so stopping a source stops every fetch, robots
+included); the host is one of that source's active aliases; the URL is one of
+three reviewed shapes decided from the URL itself (robots.txt, the alias's
+own listing path, or a parser-allowed event page, and never an event page
+for a `listing_only` source); and the shared clock is claimed for every
+request but robots. All four phases and the hand-run `fetch-one` tool call
+it. Found on the way and removed: the superseded `runScoutRun`/`queue.js`
+path (unwired, but still a live `fetchImpl()` call site), the now-unused
+`fetchRobots` primitive, and three copies of the parser registry keyed by
+source id (one real registry, keyed by `sources.parser`, remains).
+
+**Proof, and proof the proof can fail.** `scout/test/no-other-fetch-path.test.js`:
+statically, no file in `scout/src` except the gate may call or import the
+raw fetch functions or call `fetch()`, and every script fetch site is either
+gated or one of three named exemptions (asserted exact, so a stale exemption
+also fails); behaviourally, all four real phases driven with a `listing_only`
+source, a stale queued event page and a NULL-method approved row send not one
+event page to the network. Four deliberate breaks, each red: a new module
+calling `fetchOnce` directly; link-check calling the raw `fetchImpl` for NULL
+rows (the production bug's own shape); the gate forgetting `listing_only`; a
+new script fetching a crawl target raw. `scripts/verify-fetcher.sh` now proves
+the 10-second law through the real path (gate plus the real `d1ClaimSlot`,
+real HTTPS server): the server saw the two requests 10,013 ms apart.
+
+**Not covered.** The three script exemptions are human-run and outside the
+gate by construction (the fetcher's own localhost battery, the console
+walkthrough, and pre-activation alias review, which cannot be gated on an
+activation that has not happened yet). The static proof is a text scan: a
+fetch reached through `eval`, a computed property name, or a
+`globalThis['fe'+'tch']` would evade it. The behavioural proof covers that
+class for the four phases, not for code that does not exist yet.

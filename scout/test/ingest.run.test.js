@@ -11,6 +11,7 @@ import { runIngest } from '../src/ingest.js';
 const ALLOWED_SOURCE = {
   id: 'src-smoothcomp',
   host: 'smoothcomp.com',
+  parser: 'smoothcomp_v1',
   active: 1,
   page_types: '["events"]',
   terms_url: 'https://smoothcomp.com/en/agreements',
@@ -53,8 +54,11 @@ function fakeFetch(byUrl) {
   return { calls, fetchImpl: async (url) => { calls.push(url); const r = byUrl[url]; if (!r) throw new Error(`no fake for ${url}`); return { status: r.status, headers: { get: () => null }, text: async () => r.body ?? '' }; } };
 }
 
+const ALIASES = { 'src-smoothcomp': [{ host: 'fujibjj.smoothcomp.com', listingPath: '/en/federation/201/events/upcoming' }] };
+
 function noopDeps(overrides = {}) {
   return {
+    aliasesBySource: ALIASES,
     loadExistingEvent: async () => null,
     applyUpsert: async () => {},
     markPageFetched: async () => {},

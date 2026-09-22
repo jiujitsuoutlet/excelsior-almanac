@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fetchOnce, fetchRobots, checkRequestAllowed, sha256Hex, FetchRefused, MAX_BYTES } from '../src/fetcher.js';
+import { fetchOnce, checkRequestAllowed, sha256Hex, FetchRefused, MAX_BYTES } from '../src/fetcher.js';
 import { pathAllowed } from '../src/parsers/smoothcomp.js';
 import { USER_AGENT } from '../src/identity.js';
 
@@ -155,18 +155,10 @@ test('the request is abortable: a hung server does not hold the connection forev
   await assert.rejects(fetchOnce(EVENT, { fetchImpl: impl, allowHost: HOST, pathAllowed, timeoutMs: 40 }), /failed: aborted/);
 });
 
-test('robots.txt is fetched at its own path, with the same user agent', async () => {
-  const impl = recorder(() => new Response('User-agent: *\nDisallow:\n', { status: 200 }));
-  const result = await fetchRobots(HOST, { fetchImpl: impl });
-  assert.equal(impl.calls[0].url, 'https://smoothcomp.com/robots.txt');
-  assert.equal(impl.calls[0].init.headers['User-Agent'], USER_AGENT);
-  assert.equal(result.status, 200);
-});
-
-test('robots.txt on another host is still refused', async () => {
-  const never = recorder(() => { throw new Error('this must not run'); });
-  await assert.rejects(fetchRobots('example.com', { fetchImpl: never, allowHost: HOST }), /is not example\.com|is not smoothcomp\.com/);
-});
+// robots.txt coverage moved to scout/test/fetchgate.test.js when fetchRobots
+// was deleted (2026-09-21): a robots read now goes through the one gate like
+// every other request, and is tested there (own path, pinned user agent,
+// another host refused).
 
 test('sha256Hex produces the lowercase hex the terms review records', async () => {
   assert.equal(

@@ -29,13 +29,10 @@
 // still present, which is the real liveness signal without ever
 // requesting the registration/checkout flow itself.
 
-import { checkSource } from './gate.js';
 import { structuralLinkVerdict } from './structural.js';
 import { groundPage } from './grounding.js';
-import { fetchOnce, FetchRefused } from './fetcher.js';
-import * as smoothcomp from './parsers/smoothcomp.js';
-
-export const PARSERS = { 'src-smoothcomp': smoothcomp };
+import { gatedFetch } from './fetchgate.js';
+import { parserForSource } from './parsers/index.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -64,6 +61,7 @@ export async function runLinkCheck({
   markLinkLive,
   demoteDeadLink,
   deactivateSource = async () => {},
+  aliasesBySource = {},
   staleAfterMs = DAY_MS,
   maxChecks = 50,
 }) {
@@ -77,7 +75,6 @@ export async function runLinkCheck({
   let checked = 0;
   let confirmedLive = 0;
   let structural = 0;
-  const approvedHosts = new Set(links.map((l) => l.host));
   let demoted = 0;
   const skipped = [];
   const nowIso = new Date(now).toISOString();
@@ -86,42 +83,32 @@ export async function runLinkCheck({
   const backedOff = new Set();
 
   for (const link of links) {
-    // The terms-review gate, same check discover.js/ingest.js already
-    // make (Opus review, 2026-09-19, B2): link-check never had this at
-    // all, so setting a source inactive to stop crawling it left the
-    // daily re-check still hitting the host forever.
-    const gate = checkSource(link.source);
-    if (!gate.allowed) {
-      skipped.push({ id: link.id, reason: gate.reason });
-      continue;
-    }
-    const parser = PARSERS[link.source.id];
-    if (!parser) {
-      skipped.push({ id: link.id, reason: `no parser registered for source ${link.source.id}` });
-      continue;
-    }
     if (backedOff.has(link.source.id)) {
       skipped.push({ id: link.id, reason: 'this company backed off earlier in this same run; not tried again tonight' });
       continue;
     }
+    const aliases = aliasesBySource[link.source.id] ?? [];
 
-    // A structurally-checked row (founder ruling, 2026-09-20) is never
-    // fetched: its registration URL is a Smoothcomp event page, and those
-    // 403 us. All this can honestly confirm is that the URL is well-formed,
-    // https, and on an approved alias -- so that is all it claims, and
-    // link_check_method stays 'structural' on the row so the console can
-    // render it as the weaker thing it is. No slot is claimed, because no
-    // request is made.
-    // Keyed on the SOURCE's crawl_mode as well as the row's own method.
-    // Found in production (2026-09-21): a legacy approved row that pre-dated
-    // the link_check_method column (NULL) became eligible for a check the
-    // moment its host went active as an alias; NULL fell through to a LIVE
-    // fetch of a Smoothcomp event page, took the 403 and paused the whole
-    // source. For a listing_only source no event page is ever fetched, by
-    // any phase, whatever an individual row says -- the same rule ingest
-    // already obeys.
-    if (link.linkCheckMethod === 'structural' || link.source?.crawl_mode === 'listing_only') {
-      const verdict = structuralLinkVerdict(link.registrationUrl ?? link.sourceUrl, approvedHosts);
+    // Whether the event page may be fetched is decided in ONE place,
+    // fetchgate.js (founder ruling, 2026-09-21) -- never by this row's own
+    // link_check_method, which is exactly the key that let a legacy NULL
+    // row live-fetch a Smoothcomp event page in production.
+    let result;
+    let thrown = null;
+    try {
+      // eslint-disable-next-line no-await-in-loop -- one company's clock at a time, same discipline as discovery/ingest
+      result = await gatedFetch(link.sourceUrl, { source: link.source, aliases, fetchImpl, claimSlot, now });
+    } catch (err) {
+      thrown = `fetch failed: ${err?.message ?? err}`;
+    }
+
+    if (result?.refused?.code === 'listing_only') {
+      // The event page may never be fetched, so this is the weaker check,
+      // named honestly (founder ruling, 2026-09-20): well-formed, https, on
+      // one of this source's own active aliases, and nothing more. The
+      // approved hosts are the source's real aliases, not hosts read back
+      // off the rows being checked -- that would let a row vouch for itself.
+      const verdict = structuralLinkVerdict(link.registrationUrl ?? link.sourceUrl, new Set(aliases.map((a) => a.host)));
       if (verdict.ok) {
         // eslint-disable-next-line no-await-in-loop
         await markLinkLive(link.id, nowIso, 'structural');
@@ -134,41 +121,25 @@ export async function runLinkCheck({
       checked += 1;
       continue;
     }
-
-    // eslint-disable-next-line no-await-in-loop -- one company's clock at a time, same discipline as discovery/ingest
-    const claimed = await claimSlot(link.source, now);
-    if (!claimed) {
+    if (result?.refused) {
+      // Our own refusal is not evidence about the link (Opus review, B9):
+      // skip, never demote.
+      skipped.push({ id: link.id, reason: result.refused.reason });
+      continue;
+    }
+    if (result?.rateLimited) {
       skipped.push({ id: link.id, reason: 'rate limit slot already claimed' });
       continue;
     }
-
-    let response;
-    let refusalReason = null;
-    try {
-      // Re-checks the EVENT DETAIL page (source_url), never the
-      // registration_url directly (B1/B9): a registration_url is
-      // typically an excluded /order/ path, and fetching it here was
-      // both a terms-review violation and, when it pointed off-host, a
-      // false "dead link" demotion caused by our own allowlist refusal
-      // rather than any real evidence.
-      // eslint-disable-next-line no-await-in-loop
-      response = await fetchOnce(link.sourceUrl, {
-        fetchImpl,
-        allowHost: link.host,
-        pathAllowed: (p) => parser.pathAllowed(p, { host: link.host }),
-        now: () => now,
-      });
-    } catch (err) {
-      refusalReason = err instanceof FetchRefused ? `fetch refused: ${err.message}` : `fetch failed: ${err?.message ?? err}`;
-    }
     checked += 1;
-
-    if (refusalReason) {
+    if (thrown) {
       // eslint-disable-next-line no-await-in-loop
-      await demoteDeadLink(link.id, nowIso, refusalReason, 'system:scout-linkcheck');
+      await demoteDeadLink(link.id, nowIso, thrown, 'system:scout-linkcheck');
       demoted += 1;
       continue;
     }
+    const { response } = result;
+    const parser = parserForSource(link.source);
 
     if (response.status === 403) {
       backedOff.add(link.source.id);

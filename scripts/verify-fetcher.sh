@@ -24,7 +24,8 @@ cat > .verify-tmp/battery.mjs <<'NODE'
 import https from 'node:https';
 import { readFileSync } from 'node:fs';
 import { fetchOnce, FetchRefused } from '../scout/src/fetcher.js';
-import { runScoutRun, defaultSleep } from '../scout/src/run.js';
+import { gatedFetch } from '../scout/src/fetchgate.js';
+import { d1ClaimSlot } from '../scout/src/d1adapters.js';
 import { USER_AGENT } from '../scout/src/identity.js';
 
 const TMP = process.env.BATTERY_TMP;
@@ -126,39 +127,55 @@ try {
 check(httpRefused instanceof FetchRefused && /only https/.test(httpRefused.message), 'plain http is refused');
 check(seen.length === httpBefore, 'and no request reached the server');
 
-// ---- 6. EXC-147 for real: two pages on one host, ten seconds apart ----
+// ---- 6. the crawl law for real, through the REAL path: the fetch gate and
+//         the real d1ClaimSlot, two pages on one host, ten seconds apart ----
+// (Until 2026-09-21 this proved the spacing through runScoutRun, a superseded
+// path nothing in the Worker calls any more. The proof now runs through the
+// same gatedFetch + d1ClaimSlot the nightly crawl really uses.)
 const SOURCE = {
-  host: 'localhost', active: 1, page_types: '["a", "b"]',
+  id: 'src-local', host: 'localhost', parser: 'smoothcomp_v1', crawl_mode: 'listing_and_detail', active: 1,
+  page_types: '["events"]',
   terms_url: 'https://localhost/terms', terms_last_updated: '2026-01-01', terms_read_on: '2026-09-01',
   terms_automated_access: 'none found', terms_reuse: 'none found', login_required: 0, official_api: 'none',
   excluded_paths: '[]', robots_disallowed: '[]', robots_crawl_delay_seconds: null,
   robots_sha256: 'a'.repeat(64), robots_read_on: '2026-09-01',
   verdict: 'allowed', verdict_conditions: null, reviewed_by: 'r@example.com', reviewed_on: '2026-09-01',
 };
+const ALIASES = [{ host: 'localhost', listingPath: '/en/events' }];
+// A faithful fake of the ONE statement claimRateLimitSlot runs (same shape as
+// scout/test/limiter.claim.test.js), so the REAL d1ClaimSlot -- with its real
+// setTimeout wait-and-retry -- is what is under test here, not a stand-in.
+const sourcesRow = { id: 'src-local', last_claimed_at: null };
+const fakeDb = { prepare: () => ({ bind: (nowIso, id, cutoffIso) => ({ run: async () => {
+  const eligible = id === sourcesRow.id && (sourcesRow.last_claimed_at === null || sourcesRow.last_claimed_at <= cutoffIso);
+  if (eligible) sourcesRow.last_claimed_at = nowIso;
+  return { meta: { changes: eligible ? 1 : 0 } };
+} }) }) };
+const claimSlot = d1ClaimSlot(fakeDb);
 const spacedFrom = seen.length;
 const runStart = Date.now();
-// A run that throws is a FAIL line, not a crashed battery: a harness that
-// dies without printing a result cannot be read as "it failed" by anyone.
-let run = { pagesFetched: -1 };
 let runError = null;
+const results = [];
 try {
-  run = await runScoutRun({
-    now: () => Date.now(),
-    sleep: defaultSleep,
-    loadSources: async () => [SOURCE],
-    openRun: async () => 'local-run',
-    closeRun: async () => {},
-    fetchImpl: async (entry) => { await fetchOnce(`${base}/${entry.pageType}`, opts); },
-  });
+  for (const path of ['/en/event/1/a', '/en/event/2/b']) {
+    results.push(await gatedFetch(`${base}${path}`, { source: SOURCE, aliases: ALIASES, fetchImpl: opts.fetchImpl, claimSlot, now: Date.now() }));
+  }
 } catch (err) {
   runError = err;
 }
-const spaced = seen.slice(spacedFrom).filter((r) => r.url === '/a' || r.url === '/b');
+const spaced = seen.slice(spacedFrom).filter((r) => r.url === '/en/event/1/a' || r.url === '/en/event/2/b');
 const gapMs = spaced.length === 2 ? spaced[1].at - spaced[0].at : -1;
-check(runError === null, 'the spaced run completed without a rule refusal', String(runError?.message ?? ''));
-check(run.pagesFetched === 2, 'the run fetched both planned pages');
+check(runError === null, 'both gated fetches completed', String(runError?.message ?? ''));
+check(results.length === 2 && results.every((r) => r.response), 'the gate allowed both event pages and fetched them');
 check(gapMs >= 10_000, `the server saw the two requests ${gapMs}ms apart, at least ten seconds`, `gap was ${gapMs}ms`);
-check(Date.now() - runStart >= 10_000, 'and the run really took that long (the wait was not skipped)');
+check(Date.now() - runStart >= 10_000, 'and it really took that long (d1ClaimSlot waited, it did not skip)');
+
+// The same gate, the same source, flipped to listing_only: the event page
+// never reaches the server at all.
+const beforeListingOnly = seen.length;
+const refused = await gatedFetch(`${base}/en/event/3/c`, { source: { ...SOURCE, crawl_mode: 'listing_only' }, aliases: ALIASES, fetchImpl: opts.fetchImpl, claimSlot, now: Date.now() });
+check(refused.refused?.code === 'listing_only', 'a listing_only source is refused its event page by the gate');
+check(seen.length === beforeListingOnly, 'and no request reached the server');
 
 // ---- 7. the plan printer cannot fetch ----
 // Its source row is built from the founder's own review FILE, not typed
@@ -181,8 +198,11 @@ writeFileSync(`${TMP}/source.json`, JSON.stringify({
 }));
 const { execFileSync } = await import('node:child_process');
 const planBefore = seen.length;
-const planOut = execFileSync('node', ['scripts/fetch-one.mjs', '--source', `${TMP}/source.json`, '--url', 'https://smoothcomp.com/en/event/900001/x', '--plan'], { encoding: 'utf8' });
-check(/GET https:\/\/smoothcomp\.com\/robots\.txt/.test(planOut), 'the plan names both requests before anything runs');
+// The tool now asks the one fetch gate, which only admits a reviewed, active
+// alias -- so the plan is printed for an alias URL, with that alias listed.
+writeFileSync(`${TMP}/aliases.json`, JSON.stringify([{ host: 'fujibjj.smoothcomp.com', listingPath: '/en/federation/201/events/upcoming' }]));
+const planOut = execFileSync('node', ['scripts/fetch-one.mjs', '--source', `${TMP}/source.json`, '--aliases', `${TMP}/aliases.json`, '--url', 'https://fujibjj.smoothcomp.com/en/event/900001/x', '--plan'], { encoding: 'utf8' });
+check(/GET https:\/\/fujibjj\.smoothcomp\.com\/robots\.txt/.test(planOut), 'the plan names both requests before anything runs');
 check(/Nothing is written to the events table/.test(planOut), 'the plan says plainly that nothing is written');
 check(seen.length === planBefore, 'printing the plan made no request');
 

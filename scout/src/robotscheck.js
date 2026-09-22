@@ -13,7 +13,8 @@
 // look again (checkSource/the discovery gate already refuse an inactive
 // row) -- this never re-activates one on its own.
 
-import { fetchRobots, sha256Hex } from './fetcher.js';
+import { sha256Hex } from './fetcher.js';
+import { gatedFetch } from './fetchgate.js';
 import { looksLikeChallenge } from './grounding.js';
 
 /**
@@ -31,6 +32,8 @@ export async function runRobotsRecheck({ now, fetchImpl, loadActiveAliasesWithSo
   }
 
   const aliases = await loadActiveAliasesWithSource();
+  const aliasesBySource = {};
+  for (const a of aliases) if (a.source) (aliasesBySource[a.source.id] ??= []).push({ host: a.host, listingPath: a.listingPath });
   const todayIso = new Date(now).toISOString().slice(0, 10);
   let checked = 0;
   let unchanged = 0;
@@ -48,8 +51,17 @@ export async function runRobotsRecheck({ now, fetchImpl, loadActiveAliasesWithSo
 
     let response;
     try {
-      // eslint-disable-next-line no-await-in-loop -- robots.txt fetches are sequential, same discipline as every other fetch this crawl makes
-      response = await fetchRobots(alias.host, { fetchImpl, now: () => now });
+      // Through the one fetch gate like every other request (founder
+      // ruling, 2026-09-21). A robots.txt read claims no rate-limit slot,
+      // but it still needs a reviewed, active source and an active alias:
+      // an operator stopping a source stops this too.
+      // eslint-disable-next-line no-await-in-loop -- sequential, same discipline as every other fetch this crawl makes
+      const result = await gatedFetch(`https://${alias.host}/robots.txt`, { source: alias.source, aliases: aliasesBySource[alias.source?.id] ?? [], fetchImpl, now });
+      if (result.refused) {
+        skipped.push({ host: alias.host, reason: result.refused.reason });
+        continue;
+      }
+      response = result.response;
     } catch (err) {
       skipped.push({ host: alias.host, reason: `robots.txt fetch failed: ${err?.message ?? err}` });
       continue;

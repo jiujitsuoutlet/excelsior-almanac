@@ -7,16 +7,11 @@
 // discovered_pages), ingest.js (phase 2: detail pages -> real events
 // rows, respecting every trigger the schema enforces), linkcheck.js
 // (re-verifying already-approved rows' event pages still show a
-// registration link). This SUPERSEDES the older page_types/buildPlan
-// single-pass model (run.js/queue.js), which predates the alias
-// architecture and the real multi-phase crawl; that code is left in
-// place (still tested, still working) rather than deleted, since
-// removing it is a separate, deliberate cleanup, not a side effect of
-// this change.
+// registration link). Every one of their requests goes through ONE
+// function, fetchgate.js's gatedFetch (founder ruling, 2026-09-21).
 //
-// Every phase runs even when it finds nothing to do -- zero active
-// aliases (today's real state; ALMANAC has never activated one) is a
-// legitimate, fully-exercised empty run, not a skipped one.
+// Every phase runs even when it finds nothing to do: zero active aliases is
+// a legitimate, fully-exercised empty run, not a skipped one.
 //
 // Gates (see scout/wrangler.toml): staging and production both run nightly
 // (staging authorized 2026-09-20, production 2026-09-21 after a clean
@@ -124,6 +119,11 @@ async function runCrawlCycle(env) {
     throw err;
   }
 
+  // Read AFTER the robots phase, which may have just paused an alias for
+  // drift: every later phase's fetch gate must see only what is active now.
+  const aliasesBySource = {};
+  for (const a of await loadActiveAliasesWithSource()) (aliasesBySource[a.source.id] ??= []).push({ host: a.host, listingPath: a.listingPath });
+
   const ingestRunId = await openRun({ component: TIER1_COMPONENT, region: 'ingest', startedAt: Date.now() });
   let ingestResult;
   try {
@@ -139,6 +139,7 @@ async function runCrawlCycle(env) {
       markPageExcluded: d1MarkPageExcluded(env.DB),
       requeueStalePages: d1RequeueStalePages(env.DB),
       deactivateSource,
+      aliasesBySource,
     });
     await closeRun({ runId: ingestRunId, status: 'succeeded', finishedAt: Date.now(), pagesFetched: ingestResult.fetched, errors: ingestResult.failed.length, hostsSkipped: 0 });
   } catch (err) {
@@ -157,6 +158,7 @@ async function runCrawlCycle(env) {
       markLinkLive: d1MarkLinkLive(env.DB),
       demoteDeadLink: d1DemoteDeadLink(env.DB),
       deactivateSource,
+      aliasesBySource,
     });
     // pages_fetched counts real requests only. A structural check makes no
     // request, so counting it here would report a fetch that never happened

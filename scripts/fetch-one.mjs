@@ -14,8 +14,9 @@
 
 import { readFileSync } from 'node:fs';
 import { checkSource } from '../scout/src/gate.js';
-import { classifyUrl, pathAllowed, parseEventPage, toDraftRow } from '../scout/src/parsers/smoothcomp.js';
-import { fetchOnce, fetchRobots, sha256Hex } from '../scout/src/fetcher.js';
+import { classifyUrl, parseEventPage, toDraftRow } from '../scout/src/parsers/smoothcomp.js';
+import { sha256Hex } from '../scout/src/fetcher.js';
+import { gatedFetch } from '../scout/src/fetchgate.js';
 import { parseRobots, isAllowed, crawlDelayFor, classifyRobotsFetch } from '../scout/src/robots.js';
 import { minIntervalSeconds } from '../scout/src/limiter.js';
 import { USER_AGENT, ROBOTS_TOKEN } from '../scout/src/identity.js';
@@ -28,6 +29,7 @@ const flag = (name) => {
 const MODE = args.includes('--go') ? 'go' : 'plan';
 const SOURCE_FILE = flag('--source');
 const URL_ARG = flag('--url');
+const ALIASES_FILE = flag('--aliases');
 
 // In --plan mode nothing may touch the network, and that is enforced, not
 // promised: the global fetch is replaced with something that throws.
@@ -44,16 +46,20 @@ const stop = (message, detail = '') => {
 if (!SOURCE_FILE || !URL_ARG) stop('called without a source row or a URL (use scripts/fetch-one.sh)');
 
 const source = JSON.parse(readFileSync(SOURCE_FILE, 'utf8'));
+// The source's ACTIVE aliases, read from the database by fetch-one.sh. The
+// one fetch gate (scout/src/fetchgate.js) only lets a request through to a
+// reviewed, active alias -- this hand-run tool gets no exemption from that.
+const aliases = ALIASES_FILE ? JSON.parse(readFileSync(ALIASES_FILE, 'utf8')) : [];
 
 // ---- gate: the same check the runner uses, no copy of it here ----
 const gate = checkSource(source);
 if (!gate.allowed) stop(`the terms review gate refuses ${source?.host ?? 'this source'}`, gate.reason);
 
 // ---- the URL must be an event detail page on that host ----
-const verdict = classifyUrl(URL_ARG);
+const verdict = classifyUrl(URL_ARG, { allowedHosts: aliases.map((a) => a.host) });
 if (!verdict.ok) stop(`that URL will not be fetched: ${verdict.reason}`, `  ${URL_ARG}`);
 const target = verdict.url.toString();
-const host = source.host;
+const host = verdict.url.hostname;
 const interval = minIntervalSeconds(source.robots_crawl_delay_seconds);
 
 if (MODE === 'plan') {
@@ -84,7 +90,14 @@ const t0 = Date.now();
 const sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
 
 console.log(`[1/2] GET https://${host}/robots.txt`);
-const robotsResponse = await fetchRobots(host, { fetchImpl: (...a) => fetch(...a), allowHost: host });
+// Hand-run: this tool waits the crawl delay itself, below, and checks the wait.
+// It does not claim the Worker's shared clock (it has no database handle), so
+// the slot claim is a pass-through -- the gate's OTHER rules all still apply.
+const handClaim = async () => true;
+const pageHost = host;
+const robotsResult = await gatedFetch(`https://${pageHost}/robots.txt`, { source, aliases, fetchImpl: fetch, claimSlot: handClaim, now: Date.now() });
+if (robotsResult.refused) stop(`the fetch gate refuses robots.txt on ${pageHost}`, `      ${robotsResult.refused.reason}`);
+const robotsResponse = robotsResult.response;
 console.log(`      ${robotsResponse.status} ${robotsResponse.contentType ?? ''} ${robotsResponse.bytes} bytes in ${robotsResponse.elapsedMs}ms`);
 
 const disposition = classifyRobotsFetch(robotsResponse.status);
@@ -116,12 +129,14 @@ console.log(`      allows ${verdict.url.pathname} ... good`);
 
 console.log(`\n      waiting ${waitSeconds} seconds before the second request (the crawl delay)`);
 const dueAt = Date.now() + waitSeconds * 1000;
-await sleep(waitSeconds * 1000);
+await sleep(waitSeconds * 1000 + 50); // timers can fire a few ms early; the check below still refuses early
 const early = dueAt - Date.now();
 if (early > 0) stop(`refusing to fetch ${early}ms early; the crawl delay is the condition this source was reviewed under`);
 
 console.log(`\n[2/2] GET ${target}`);
-const page = await fetchOnce(target, { fetchImpl: (...a) => fetch(...a), allowHost: host, pathAllowed });
+const pageResult = await gatedFetch(target, { source, aliases, fetchImpl: fetch, claimSlot: handClaim, now: Date.now() });
+if (pageResult.refused) stop('the fetch gate refuses this page', `      ${pageResult.refused.reason}`);
+const page = pageResult.response;
 console.log(`      ${page.status} ${page.contentType ?? ''} ${page.bytes} bytes in ${page.elapsedMs}ms`);
 if (page.redirectTo) {
   stop(`that URL redirects to ${page.redirectTo}, and redirects are never followed`, '      Open it in a browser, and pass the address it lands on.');

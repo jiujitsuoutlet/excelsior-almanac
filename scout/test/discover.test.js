@@ -5,6 +5,7 @@ import { runDiscovery } from '../src/discover.js';
 const ALLOWED_SOURCE = {
   id: 'src-smoothcomp',
   host: 'smoothcomp.com',
+  parser: 'smoothcomp_v1',
   active: 1,
   page_types: '["events"]',
   terms_url: 'https://smoothcomp.com/en/agreements',

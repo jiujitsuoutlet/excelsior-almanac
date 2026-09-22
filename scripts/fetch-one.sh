@@ -55,6 +55,10 @@ if [ ! -s "$TMP/source.json" ]; then
   exit 3
 fi
 
+npx wrangler d1 execute "${DB[@]}" --json \
+  --command "SELECT sa.host AS host, sa.listing_path AS listingPath FROM source_aliases sa JOIN sources s ON s.id = sa.source_id WHERE s.host = 'smoothcomp.com' AND sa.active = 1" 2>/dev/null \
+  | sed -n '/^\[/,$p' | jq '.[0].results // []' > "$TMP/aliases.json"
+
 MARKER=$(npx wrangler d1 execute "${DB[@]}" --json --command "SELECT name AS v FROM environment_marker WHERE id = 1" 2>/dev/null | sed -n '/^\[/,$p' | jq -r '.[0].results[0].v // "none"')
 if [ "$MARKER" != "staging" ]; then
   echo "STOP: this database says it is '$MARKER', not staging."
@@ -63,7 +67,7 @@ fi
 
 echo ""
 echo "================ WHAT THIS WILL DO ================"
-node scripts/fetch-one.mjs --source "$TMP/source.json" --url "$URL" --plan
+node scripts/fetch-one.mjs --source "$TMP/source.json" --aliases "$TMP/aliases.json" --url "$URL" --plan
 echo "==================================================="
 echo ""
 printf 'Type yes to make these two requests: '
@@ -81,7 +85,7 @@ echo "crawl_runs row $RUN_ID opened in staging."
 echo ""
 
 set +e
-node scripts/fetch-one.mjs --source "$TMP/source.json" --url "$URL" --go
+node scripts/fetch-one.mjs --source "$TMP/source.json" --aliases "$TMP/aliases.json" --url "$URL" --go
 CODE=$?
 set -e
 

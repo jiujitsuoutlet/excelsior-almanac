@@ -5,8 +5,17 @@ import { sha256Hex } from '../src/fetcher.js';
 
 const REAL_ROBOTS = 'User-agent: *\nDisallow: /order/\nCrawl-delay: 10\n';
 
-function alias({ host = 'fujibjj.smoothcomp.com', robotsSha256 } = {}) {
-  return { aliasId: `alias-${host}`, host, robotsSha256 };
+const SOURCE = {
+  id: 'src-smoothcomp', host: 'smoothcomp.com', parser: 'smoothcomp_v1', active: 1,
+  page_types: '["events"]', terms_url: 'https://smoothcomp.com/en/agreements', terms_last_updated: '2026-01-01',
+  terms_read_on: '2026-09-16', terms_automated_access: 'none found', terms_reuse: 'none found', login_required: 0,
+  official_api: 'none', excluded_paths: '[]', robots_disallowed: '[]', robots_crawl_delay_seconds: null,
+  robots_sha256: 'a'.repeat(64), robots_read_on: '2026-09-16', verdict: 'allowed_with_conditions',
+  verdict_conditions: 'public listing/detail pages only', reviewed_by: 'founder@example.com', reviewed_on: '2026-09-16',
+};
+
+function alias({ host = 'fujibjj.smoothcomp.com', robotsSha256, source = SOURCE } = {}) {
+  return { aliasId: `alias-${host}`, host, listingPath: '/en/events', robotsSha256, source };
 }
 
 function fakeFetch(byUrl) {
