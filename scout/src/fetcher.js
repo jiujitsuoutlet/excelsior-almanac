@@ -182,20 +182,6 @@ export async function fetchOnce(rawUrl, {
   }
 }
 
-// robots.txt is fetched by its own path, never through the page path rules
-// (those describe CONTENT pages). Everything else is identical, including
-// the user agent and the ten-second spacing the caller is responsible for.
-//
-// `allowHost` still governs. An earlier version of this function set
-// allowHost from its own `host` argument, which meant a wrong or hostile
-// host string could reach any server on the internet: the one check that
-// matters was being satisfied by the very value it was meant to check. The
-// allowed host comes from the `sources` row, and `host` must match it.
-export async function fetchRobots(host, options = {}) {
-  const allowHost = options.allowHost ?? host;
-  return fetchOnce(`https://${host}/robots.txt`, { ...options, allowHost, pathAllowed: null });
-}
-
 // The SHA-256 of a robots.txt body, in the same lowercase hex the terms
 // review recorded, so "has robots.txt changed since the founder read it" is
 // a comparison and not a judgement call.
