@@ -883,3 +883,34 @@ activation that has not happened yet). The static proof is a text scan: a
 fetch reached through `eval`, a computed property name, or a
 `globalThis['fe'+'tch']` would evade it. The behavioural proof covers that
 class for the four phases, not for code that does not exist yet.
+
+## A failed run records WHY (founder ruling, 2026-09-22)
+
+"A cycle that fails should record WHY, not just that it failed. Unexplained
+is not acceptable for something that runs unattended every night against
+other people's servers."
+
+**The incident.** A production discovery phase was recorded `failed,
+errors 1`, and that was the entire record. The cause turned out to be an
+interrupted deploy-and-run command, recoverable only from an operator's
+local wrangler logs -- which are not part of the system and do not exist on
+the machine the cron runs on. A nightly job that can fail without saying why
+cannot be operated.
+
+**The fix.** `crawl_runs.error_text` (migration `20260922010000`), written on
+every close: the thrown error's kind and message on a failure, bounded to 500
+characters and never a stack trace or a page body; the deduplicated skip
+reasons on a SUCCEEDED phase, so a recurring count explains itself; and a
+fixed sentence on the stale-run sweep, so a cycle killed mid-flight says so
+instead of being closed as a bare failure by the next night's run.
+
+**Proven** by `scout/test/crawl-run-records-why.test.js`, which drives the
+REAL `runCrawlCycle` against a D1 shim and asserts the statement the Worker
+actually issues, and live on staging: discovery's long-standing `errors: 3`
+now reads `75 skipped: listing entry dropped: ... missing required field(s):
+country | ambiguous near a state line: Hampton (IL, 6.1 km) and Bettendorf
+(IA, 8.7 km) ...`.
+
+**Not covered.** A failure in `openRun` itself, or a D1 outage, still cannot
+record anything -- there is nowhere to write it. The Worker's console output
+is not retained anywhere; only what reaches `crawl_runs` survives.

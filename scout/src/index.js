@@ -44,7 +44,7 @@ import {
   d1MarkLinkLive,
   d1DemoteDeadLink,
 } from './d1adapters.js';
-import { d1RunOpener, d1RunCloser } from './run.js';
+import { d1RunOpener, d1RunCloser, truncate } from './run.js';
 
 // Every crawl_runs row's `component` MUST be one of the six values the
 // table's own CHECK constraint permits (core_schema.sql); the phases this
@@ -55,10 +55,26 @@ import { d1RunOpener, d1RunCloser } from './run.js';
 // once been executed against the real schema. `region` carries the
 // specific phase name instead; it has no CHECK, and crawl_runs' own
 // purpose ("cost and error reporting") is served just as well by it.
+// What a thrown thing was, in words a person reading crawl_runs can act on.
+export function describeError(err) {
+  if (!err) return 'unknown failure (nothing was thrown)';
+  const name = err.name && err.name !== 'Error' ? `${err.name}: ` : '';
+  return truncate(`${name}${err.message ?? String(err)}`);
+}
+
+// Why a SUCCEEDED phase still reported errors: the distinct reasons, so a
+// recurring count explains itself instead of being a number nobody can
+// account for later.
+export function summariseSkips(entries) {
+  const reasons = [...new Set((entries ?? []).map((e) => e?.reason).filter(Boolean))];
+  if (reasons.length === 0) return null;
+  return truncate(`${entries.length} skipped: ${reasons.join(' | ')}`);
+}
+
 const TIER1_COMPONENT = 'tier1_scout';
 const LINKCHECK_COMPONENT = 'link_checker';
 
-async function runCrawlCycle(env) {
+export async function runCrawlCycle(env) {
   const now = Date.now();
   const claimSlot = d1ClaimSlot(env.DB);
   const deactivateSource = (sourceId) => d1DeactivateSource(env.DB)(sourceId);
@@ -70,7 +86,7 @@ async function runCrawlCycle(env) {
   // crawl_runs row 'running' forever; nothing else ever closes it. Any row
   // still running past the platform's own wall-time limit is dead.
   await env.DB
-    .prepare(`UPDATE crawl_runs SET status = 'failed', finished_at = ?1, errors = errors + 1 WHERE status = 'running' AND started_at < ?2`)
+    .prepare(`UPDATE crawl_runs SET status = 'failed', finished_at = ?1, errors = errors + 1, error_text = coalesce(error_text, 'abandoned: still running when a later cycle started, so the invocation was killed mid-flight (deploy, interrupt, or platform eviction)') WHERE status = 'running' AND started_at < ?2`)
     .bind(new Date(now).toISOString(), new Date(now - 20 * 60 * 1000).toISOString())
     .run();
 
@@ -87,9 +103,9 @@ async function runCrawlCycle(env) {
       markAliasRobotsFresh: d1MarkAliasRobotsFresh(env.DB),
       pauseAliasForDrift: d1PauseAliasForRobotsDrift(env.DB),
     });
-    await closeRun({ runId: robotsRunId, status: 'succeeded', finishedAt: Date.now(), pagesFetched: robotsResult.checked, errors: robotsResult.paused.length, hostsSkipped: robotsResult.skipped.length });
+    await closeRun({ runId: robotsRunId, status: 'succeeded', finishedAt: Date.now(), pagesFetched: robotsResult.checked, errors: robotsResult.paused.length, hostsSkipped: robotsResult.skipped.length, errorText: summariseSkips([...robotsResult.paused, ...robotsResult.skipped]) });
   } catch (err) {
-    await closeRun({ runId: robotsRunId, status: 'failed', finishedAt: Date.now(), pagesFetched: 0, errors: 1, hostsSkipped: 0 });
+    await closeRun({ runId: robotsRunId, status: 'failed', finishedAt: Date.now(), pagesFetched: 0, errors: 1, hostsSkipped: 0, errorText: describeError(err) });
     throw err;
   }
 
@@ -113,9 +129,9 @@ async function runCrawlCycle(env) {
       }),
       deactivateSource,
     });
-    await closeRun({ runId: discoveryRunId, status: 'succeeded', finishedAt: Date.now(), pagesFetched: discoveryResult.attempted, errors: discoveryResult.skipped.length, hostsSkipped: discoveryResult.skipped.length, draftsCreated: discoveryResult.drafted });
+    await closeRun({ runId: discoveryRunId, status: 'succeeded', finishedAt: Date.now(), pagesFetched: discoveryResult.attempted, errors: discoveryResult.skipped.length, hostsSkipped: discoveryResult.skipped.length, draftsCreated: discoveryResult.drafted, errorText: summariseSkips([...discoveryResult.skipped, ...(discoveryResult.unresolved ?? [])]) });
   } catch (err) {
-    await closeRun({ runId: discoveryRunId, status: 'failed', finishedAt: Date.now(), pagesFetched: 0, errors: 1, hostsSkipped: 0 });
+    await closeRun({ runId: discoveryRunId, status: 'failed', finishedAt: Date.now(), pagesFetched: 0, errors: 1, hostsSkipped: 0, errorText: describeError(err) });
     throw err;
   }
 
@@ -141,9 +157,9 @@ async function runCrawlCycle(env) {
       deactivateSource,
       aliasesBySource,
     });
-    await closeRun({ runId: ingestRunId, status: 'succeeded', finishedAt: Date.now(), pagesFetched: ingestResult.fetched, errors: ingestResult.failed.length, hostsSkipped: 0 });
+    await closeRun({ runId: ingestRunId, status: 'succeeded', finishedAt: Date.now(), pagesFetched: ingestResult.fetched, errors: ingestResult.failed.length, hostsSkipped: 0, errorText: summariseSkips(ingestResult.failed) });
   } catch (err) {
-    await closeRun({ runId: ingestRunId, status: 'failed', finishedAt: Date.now(), pagesFetched: 0, errors: 1, hostsSkipped: 0 });
+    await closeRun({ runId: ingestRunId, status: 'failed', finishedAt: Date.now(), pagesFetched: 0, errors: 1, hostsSkipped: 0, errorText: describeError(err) });
     throw err;
   }
 
@@ -164,9 +180,9 @@ async function runCrawlCycle(env) {
     // request, so counting it here would report a fetch that never happened
     // (found in production 2026-09-21: "pages_fetched: 1" for a cycle that
     // touched no event page at all).
-    await closeRun({ runId: linkCheckRunId, status: 'succeeded', finishedAt: Date.now(), pagesFetched: linkCheckResult.checked - (linkCheckResult.structural ?? 0), errors: linkCheckResult.demoted, hostsSkipped: 0 });
+    await closeRun({ runId: linkCheckRunId, status: 'succeeded', finishedAt: Date.now(), pagesFetched: linkCheckResult.checked - (linkCheckResult.structural ?? 0), errors: linkCheckResult.demoted, hostsSkipped: 0, errorText: summariseSkips(linkCheckResult.skipped) });
   } catch (err) {
-    await closeRun({ runId: linkCheckRunId, status: 'failed', finishedAt: Date.now(), pagesFetched: 0, errors: 1, hostsSkipped: 0 });
+    await closeRun({ runId: linkCheckRunId, status: 'failed', finishedAt: Date.now(), pagesFetched: 0, errors: 1, hostsSkipped: 0, errorText: describeError(err) });
     throw err;
   }
 
