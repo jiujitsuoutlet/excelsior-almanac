@@ -6,6 +6,16 @@
 // founder ruling). A fetch path that exists but is unused is still a fetch
 // path; the proof that no other one exists is only honest once it is gone.
 
+// crawl_runs is a report, not a log sink: a bounded, readable reason, never
+// a stack trace or a page body.
+const MAX_ERROR_TEXT = 500;
+export function truncate(text, max = MAX_ERROR_TEXT) {
+  if (text === null || text === undefined) return null;
+  const s = String(text).replace(/\s+/g, ' ').trim();
+  if (s === '') return null;
+  return s.length <= max ? s : `${s.slice(0, max - 1)}\u2026`;
+}
+
 export function d1RunOpener(db) {
   return async ({ component, region, startedAt }) => {
     const id = crypto.randomUUID();
@@ -18,12 +28,12 @@ export function d1RunOpener(db) {
 }
 
 export function d1RunCloser(db) {
-  return async ({ runId, status, finishedAt, pagesFetched, errors, hostsSkipped, draftsCreated = 0 }) => {
+  return async ({ runId, status, finishedAt, pagesFetched, errors, hostsSkipped, draftsCreated = 0, errorText = null }) => {
     await db
       .prepare(
-        'UPDATE crawl_runs SET status = ?1, finished_at = ?2, pages_fetched = ?3, errors = ?4, hosts_skipped = ?5, drafts_created = ?7 WHERE id = ?6',
+        'UPDATE crawl_runs SET status = ?1, finished_at = ?2, pages_fetched = ?3, errors = ?4, hosts_skipped = ?5, drafts_created = ?7, error_text = ?8 WHERE id = ?6',
       )
-      .bind(status, new Date(finishedAt).toISOString(), pagesFetched, errors, hostsSkipped, runId, draftsCreated)
+      .bind(status, new Date(finishedAt).toISOString(), pagesFetched, errors, hostsSkipped, runId, draftsCreated, truncate(errorText))
       .run();
   };
 }

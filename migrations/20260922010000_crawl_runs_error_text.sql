@@ -1,0 +1,14 @@
+-- A failed crawl run must say WHY (founder ruling, 2026-09-22): "A cycle
+-- that fails should record WHY, not just that it failed. Unexplained is not
+-- acceptable for something that runs unattended every night against other
+-- people's servers."
+--
+-- The incident: a production cycle's discovery phase was recorded `failed,
+-- errors 1` and nothing else. The cause was recoverable only from an
+-- operator's local wrangler logs, which are not part of the system and do
+-- not exist on the machine that runs the cron. Additive.
+--
+-- Also carries the reason on a SUCCEEDED run, so a recurring "errors: 3"
+-- explains itself (three malformed listing entries) instead of being a
+-- number nobody can account for a week later.
+ALTER TABLE crawl_runs ADD COLUMN error_text TEXT;
