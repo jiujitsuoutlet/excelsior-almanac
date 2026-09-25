@@ -1,6 +1,26 @@
 // ALMANAC console client. Keyboard first. All data is rendered with
 // textContent (never innerHTML), so no source text can become markup.
 
+// Fold-in, finish brief 2026-09-23: "division rendering becomes one
+// shared function both the console and the member surface call, so the
+// Gi/No-Gi fix cannot drift again." True cross-repo import isn't
+// possible here -- this is a browser-only static client (console/public,
+// deployed as Cloudflare assets), the member app is a separate Vite SPA
+// in a separate repo, and neither runtime can import the other. This is
+// the twin, kept to the identical one-line rule on purpose: its match is
+// excelsior-master's app/src/fire/dialogue/engine.js divisionsClause().
+// Same name, same rule, each independently tested live in its own real
+// runtime (that one: a pure-function unit test; this one: a real browser
+// render, console-walkthrough.mjs), so a future edit to either side that
+// drifts from the shared rule fails its OWN test, not a silent divergence.
+// A row with no division data at all (gi/nogi/kids all false) is
+// "not listed", never rendered as three confirmed Nos -- a claim nothing
+// checked (founder ruling, 2026-09-20, the fail-closed law).
+export function divisionsClause(event) {
+  if (!event.gi && !event.nogi && !event.kids) return null;
+  return ["gi", "nogi", "kids"].map((f) => ({ field: f, on: !!event[f] }));
+}
+
 const state = {
   session: null,
   overview: null,
@@ -207,10 +227,21 @@ function renderMain() {
     // bare "x gi" would assert the event has no gi divisions -- a claim
     // nothing checked, rendered as a definite negative. Unknown says
     // unknown (founder ruling, 2026-09-20: "DIVISIONS: unknown for these
-    // rows"; the matcher downranks them on the app side).
-    row('Divisions', event.link_check_method === 'structural'
-      ? el('span', { class: 'flags', 'data-testid': 'divisions-unknown' }, 'unknown \u2014 not on the listing page')
-      : el('span', { class: 'flags' }, ...['gi', 'nogi', 'kids'].map((f) => el('span', {}, `${event[f] ? '✓' : '✗'} ${f}`))));
+    // rows"; the matcher downranks them on the app side). Two layers: a
+    // structurally-checked row is unconditionally unknown regardless of
+    // what gi/nogi/kids currently hold (the check method itself never
+    // confirmed them); divisionsClause() catches the OTHER way a row can
+    // carry zero real division data -- a live-checked link whose page
+    // just never listed one.
+    row('Divisions', (() => {
+      if (event.link_check_method === 'structural') {
+        return el('span', { class: 'flags', 'data-testid': 'divisions-unknown' }, 'unknown \u2014 not on the listing page');
+      }
+      const clause = divisionsClause(event);
+      return clause === null
+        ? el('span', { class: 'flags', 'data-testid': 'divisions-unknown' }, 'not listed')
+        : el('span', { class: 'flags' }, ...clause.map(({ field, on }) => el('span', {}, `${on ? '✓' : '✗'} ${field}`)));
+    })());
     row('Organizer', event.organizer_name || 'not given', chip('organizer_name'));
   }
   card.append(grid);
