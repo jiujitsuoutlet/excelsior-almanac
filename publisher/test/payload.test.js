@@ -24,8 +24,8 @@ function fixtureEvent(overrides = {}) {
   };
 }
 
-test('toTournamentRow maps only the fields the app tournaments table has today', () => {
-  const row = toTournamentRow(fixtureEvent());
+test('toTournamentRow maps every field the app tournaments table accepts today', () => {
+  const row = toTournamentRow(fixtureEvent({ lat: 37.2, lon: -93.3 }));
   assert.deepEqual(row, {
     almanac_id: 'evt_abc123',
     name: 'Test Open',
@@ -40,15 +40,42 @@ test('toTournamentRow maps only the fields the app tournaments table has today',
     nogi: false,
     kids: true,
     source_url: 'https://example.com/events/test-open',
+    country: 'US',
+    event_type: 'tournament',
+    entry_restriction: null,
+    lat: 37.2,
+    lon: -93.3,
     status: 'approved',
   });
 });
 
-test('toTournamentRow never carries country, lat, lon, or event_type', () => {
-  const row = toTournamentRow(fixtureEvent({ lat: 37.2, lon: -93.3, event_type: 'superfight' }));
-  for (const field of ['country', 'lat', 'lon', 'event_type']) {
-    assert.equal(field in row, false, `${field} must not appear until the app migrates for it`);
+// Found 2026-09-24: this function HAD been sending gi/nogi/kids on every
+// batch since the pipe existed; almanac-ingest's own upsert whitelist was
+// the half that silently dropped them (fixed the same day). Neither side's
+// own isolated tests could see the gap -- this asserts THIS side's half of
+// the contract explicitly, so a future refactor here cannot reintroduce it
+// unnoticed. The live wire contract itself is proven end to end by
+// app-contract.integration.mjs.
+test('toTournamentRow carries gi/nogi/kids, lat/lon, country and event_type on the wire -- the exact fields a real ingest run silently dropped once', () => {
+  const row = toTournamentRow(fixtureEvent({ lat: 37.2, lon: -93.3, gi: 1, nogi: 1, kids: 0 }));
+  for (const field of ['gi', 'nogi', 'kids', 'lat', 'lon', 'country', 'event_type']) {
+    assert.equal(field in row, true, `${field} must be present on the wire; the app has carried this column since 2026-09-23`);
   }
+  assert.equal(row.gi, true);
+  assert.equal(row.nogi, true);
+  assert.equal(row.kids, false);
+});
+
+test('lat/lon fall back to null, never undefined or a non-number, when the source event has none', () => {
+  const row = toTournamentRow(fixtureEvent({ lat: undefined, lon: undefined }));
+  assert.equal(row.lat, null);
+  assert.equal(row.lon, null);
+});
+
+test('a non-numeric lat/lon (a bad upstream value) is treated as absent, never forwarded as-is', () => {
+  const row = toTournamentRow(fixtureEvent({ lat: 'not-a-number', lon: NaN }));
+  assert.equal(row.lat, null);
+  assert.equal(row.lon, null);
 });
 
 test('toTournamentRow maps a stale event to expired, never to a status the app enum lacks', () => {

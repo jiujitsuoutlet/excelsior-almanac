@@ -35,13 +35,26 @@ database_name = "almanac"
 database_id = "c884b684-1954-4b50-a20f-7d94a62b457a"
 migrations_dir = "../migrations"
 
-# Staging: a separate database, same as the console's and the scout's.
+# Staging: a separate database, same as the console's and the scout's. It is
+# its OWN crawl target, not a mirror of production ALMANAC -- confirmed
+# 2026-09-24 the hard way: enabling this cron published a single stray
+# "Fake event" row that lived only in almanac-staging, while the founder's
+# real 43 approved rows live only in PRODUCTION's `almanac` D1. A cron here
+# can never carry those rows to the staging app; the one-off script
+# (excelsior-almanac/scripts/publish-approved-to-app.mjs) does that instead,
+# reading production D1 directly and never touching its published_at.
+# BACK OFF: no legitimate standing use for this pipe until staging ALMANAC
+# independently holds real approved rows. almanac-ingest itself stays
+# deployed to ecronfxsaoilagcwvfyw (proven, harmless, reusable).
 [env.staging]
 name = "almanac-publisher-staging"
 
+[env.staging.triggers]
+crons = []
+
 [env.staging.vars]
 PUBLISHER_ENABLED = "false"
-APP_INGEST_URL = ""
+APP_INGEST_URL = "https://ecronfxsaoilagcwvfyw.supabase.co/functions/v1/almanac-ingest"
 
 [[env.staging.d1_databases]]
 binding = "DB"
