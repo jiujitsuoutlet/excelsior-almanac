@@ -1,11 +1,12 @@
 -- Terms review record: asjjf.org (Asian Sport Jiu Jitsu Federation... ASJJF)
 --
--- RESEARCH RECORD, NOT A FOUNDER RULING. Written by the 2026-09-26
--- off-Smoothcomp research session (Claude Opus 5.5) for the founder's review.
--- reviewed_by and reviewed_on stay NULL on purpose: field 10 names a human who
--- read the pages, and no human has yet. Applying this file writes ONE INACTIVE
--- row (active = 0). The gate refuses it twice over: no reviewer (field 10) and
--- the verdict (field 9). Nothing in this file lets the scout fetch anything.
+-- Ruled by the founder on 2026-09-26 (PR #33), on the evidence below, gathered
+-- the same evening by the off-Smoothcomp research session (Claude Opus 5.5).
+-- Verdict: not_allowed. Applying this file writes ONE row, inactive
+-- (active = 0), and the gate refuses it on the verdict (field 9). Nothing in
+-- this file lets the scout fetch anything.
+--
+-- Date fields hold America/Chicago calendar dates; evidence times are UTC.
 --
 -- Evidence. The only request this session sent to ASJJF, with the pinned user
 -- agent from scout/src/identity.js. Time is UTC (the evening of 2026-09-26 in
@@ -15,10 +16,12 @@
 -- robots.txt disallows every path, so no terms page was requested: looking for
 -- one would itself break the file.
 --
--- Apply only after the founder has read the pages and filled reviewed_by and
--- reviewed_on (or changed the verdict):
+-- Apply (production, then staging):
 --   npx wrangler d1 execute almanac --remote --config console/wrangler.toml --file scout/terms-reviews/asjjf.sql
 --   npx wrangler d1 execute almanac-staging --remote --env staging --config console/wrangler.toml --file scout/terms-reviews/asjjf.sql
+
+-- The reviewer must exist before a review can name them (foreign key).
+INSERT OR IGNORE INTO reviewers (email, role) VALUES ('paul.tokgozoglu@gmail.com', 'admin');
 
 INSERT INTO sources (
   id, host, tier, parser, page_types,
@@ -49,11 +52,11 @@ INSERT INTO sources (
   '["/"]',
   NULL,
   'efdb5938a9736727f5cce2b60355588e4fa541d19d022d222d8a09b8efd5dcce',
-  '2026-09-27',
+  '2026-09-26',
 
   'not_allowed',
-  'NOT ALLOWED: robots.txt says no to every automated agent. US relevance is near zero (ASJJF runs Asian events; SJJIF''s own record, src-sjjif, covers its US events). The only path is written permission, and it is not worth asking. Recommended by the 2026-09-26 research session; not yet ruled by the founder.',
-  NULL,
-  NULL,
+  'NOT ALLOWED: robots.txt says no to every automated agent. US relevance is near zero (ASJJF runs Asian events; SJJIF''s own record, src-sjjif, covers its US events). The only path is written permission, and it is not worth asking. Ruled by the founder, 2026-09-26.',
+  'paul.tokgozoglu@gmail.com',
+  '2026-09-26',
   0
 );

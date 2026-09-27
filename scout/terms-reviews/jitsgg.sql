@@ -1,11 +1,12 @@
 -- Terms review record: jits.gg (Jits.gg, youth BJJ rankings and results)
 --
--- RESEARCH RECORD, NOT A FOUNDER RULING. Written by the 2026-09-26
--- off-Smoothcomp research session (Claude Opus 5.5) for the founder's review.
--- reviewed_by and reviewed_on stay NULL on purpose: field 10 names a human who
--- read the pages, and no human has yet. Applying this file writes ONE INACTIVE
--- row (active = 0). The gate refuses it twice over: no reviewer (field 10) and
--- the verdict (field 9). Nothing in this file lets the scout fetch anything.
+-- Ruled by the founder on 2026-09-26 (PR #33), on the evidence below, gathered
+-- the same evening by the off-Smoothcomp research session (Claude Opus 5.5).
+-- Verdict: not_allowed. Applying this file writes ONE row, inactive
+-- (active = 0), and the gate refuses it on the verdict (field 9). Nothing in
+-- this file lets the scout fetch anything.
+--
+-- Date fields hold America/Chicago calendar dates; evidence times are UTC.
 --
 -- Evidence. The only request this session sent to Jits.gg, with the pinned
 -- user agent from scout/src/identity.js. Time is UTC (the evening of
@@ -14,10 +15,12 @@
 --       sha256 8de269914ea33499692fc112245a9fe4fa1493eaa21cd9b8ee8ccbcefe0b11ba
 -- No other page was requested: the verdict below does not depend on one.
 --
--- Apply only after the founder has read the pages and filled reviewed_by and
--- reviewed_on (or changed the verdict):
+-- Apply (production, then staging):
 --   npx wrangler d1 execute almanac --remote --config console/wrangler.toml --file scout/terms-reviews/jitsgg.sql
 --   npx wrangler d1 execute almanac-staging --remote --env staging --config console/wrangler.toml --file scout/terms-reviews/jitsgg.sql
+
+-- The reviewer must exist before a review can name them (foreign key).
+INSERT OR IGNORE INTO reviewers (email, role) VALUES ('paul.tokgozoglu@gmail.com', 'admin');
 
 INSERT INTO sources (
   id, host, tier, parser, page_types,
@@ -48,11 +51,11 @@ INSERT INTO sources (
   '["/admin/","/api/","/login","/signup/","/profile/","/scanner/","/dashboard/","/alerts/","/dev/","/academy/claim/","/claim/","/academies/","/fighters/","/rankings"]',
   NULL,
   '8de269914ea33499692fc112245a9fe4fa1493eaa21cd9b8ee8ccbcefe0b11ba',
-  '2026-09-27',
+  '2026-09-26',
 
   'not_allowed',
-  'NOT ALLOWED on ALMANAC''s own law (ARCHITECTURE section 6: never participant data of any kind, never the name of any minor). The site''s business is youth rankings built from organizers'' brackets and registration lists, and its JJWL and IBJJF data would route around both organizers'' terms. Recommended by the 2026-09-26 research session; not yet ruled by the founder.',
-  NULL,
-  NULL,
+  'NOT ALLOWED on ALMANAC''s own law (ARCHITECTURE section 6: never participant data of any kind, never the name of any minor). The site''s business is youth rankings built from organizers'' brackets and registration lists, and its JJWL and IBJJF data would route around both organizers'' terms. Ruled by the founder, 2026-09-26.',
+  'paul.tokgozoglu@gmail.com',
+  '2026-09-26',
   0
 );

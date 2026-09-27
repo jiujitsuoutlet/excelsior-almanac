@@ -156,3 +156,100 @@ file and makes the code answer to it.
 One real hole was found by a test while writing this: `fetchRobots` took its
 allowed host from its own argument, so the check that keeps us on one host
 was being satisfied by the very value it was meant to check.
+
+## 2026-09-26 ... off-Smoothcomp terms reviews: IBJJF and JJWL are permission-only
+
+One research session, pull request #33, eleven terms reviews, and the
+founder's rulings the same night. No code, no crawl, nothing applied to
+either database.
+
+### What shipped, and who proved it
+
+| Shipped | Proven by |
+|---|---|
+| Eleven terms-review records in `scout/terms-reviews/`: IBJJF, JJWL, SJJIF, ASJJF, AJP, GripWire, BJJCompFinder, JiuJitsuBlog, FloGrappling, Wikipedia, Jits.gg | Every record loads on top of all eight migrations in a throwaway database; every quoted clause machine-matched against the page text actually fetched (39 fragments, 0 misses); `scout/src/gate.js` refuses all eleven as stored; unit suite 264/264. **The founder's ruling on every verdict, 2026-09-26** |
+| Permission requests to IBJJF and JJWL | Drafted in the session; sent by the founder as written, 2026-09-26; recorded as pending in both records, with the exact scope the ask promised |
+
+### What the research found
+
+- **IBJJF** (terms last updated 2025-10-06) forbids bots, forbids compiling
+  its calendar into a database "directly or indirectly" (a person copying it
+  counts), and forbids "unauthorized framing of or linking to the Services".
+  **JJWL** forbids spidering, crawling and scraping, and says nothing about
+  compiling or linking. Neither publishes a feed, API or widget. Every third
+  party carrying their calendars either bans scraping, got its data by
+  scraping, or covers only flagship events. Written permission is the only
+  clean path.
+- **AJP** and UAEJJF's events site are white-labeled Smoothcomp (robots.txt
+  byte-identical to Smoothcomp's), and AJP's events never appear on
+  smoothcomp.com's own calendar. **ASJJF**'s robots.txt disallows
+  everything; **SJJIF**'s redirects to a login page.
+- **Stakes**, 2026-09-26 to 2026-12-06 (the window where every calendar is
+  close to complete): Smoothcomp 342 US grappling listings, IBJJF 31 (13
+  city-weekends), JJWL about 9, AJP 1, SJJIF 1. By listing: 89% / 8% / 2% /
+  under 1%. Inside the Missouri footprint: about 41 Smoothcomp, 5 IBJJF
+  (Kansas City, Nashville), 0 JJWL.
+- **The larger gap is inside Smoothcomp.** The six active aliases hold 126
+  of those 342. Smoothcomp's own public calendar page returned all 1,687
+  upcoming events to one honest request, a page the existing review already
+  covers.
+- **A schema defect, found while verifying:** the `sources` activation CHECK
+  accepts `active = 1` when `verdict` or `login_required` is NULL (SQL treats
+  `NULL = 0` as unknown, and a CHECK rejects only false). The gate still
+  refuses both, so nothing can crawl such a row; the database layer is weaker
+  than documented. The fix is a migration and rides its own pull request, not
+  this one.
+
+### Decisions, and why (founder rulings, 2026-09-26)
+
+1. **IBJJF and JJWL: not_allowed until they say yes.** Both asks are recorded
+   as pending with the promised scope, so a yes is read as covering exactly
+   that and nothing wider.
+2. **AJP: allowed with conditions, as its own source under Smoothcomp's
+   rules.** Not a Smoothcomp alias, because it serves AJP's own terms.
+   Activation waits: its listing page has not been read, so field 5 is empty.
+3. **GripWire: allowed with conditions, for an export only.** ALMANAC takes
+   only organizers whose own terms allow it, and never IBJJF or JJWL rows;
+   the export request asks GripWire where each listing comes from.
+4. **The other verdicts stand as recommended**, with the founder as reviewer
+   on all eleven records.
+5. **New law for research sessions: research reads follow the same crawl law
+   as Scout, and a site's terms are read before anything else on it.** This
+   session read BJJCompFinder pages and JiuJitsuBlog's homepage before (or
+   without) terms; those reads were accepted this once, because they were
+   disclosed.
+
+### What the session got wrong, and what it taught
+
+- The research fetch wrapper spaced requests ten seconds apart per hostname,
+  not per company. Three pairs of reads landed 0 to 1 seconds apart on sister
+  hosts of one company (IBJJF, Wikimedia, Smoothcomp's platform). Section 9's
+  one clock per company applies to research reads too.
+- The first version of the records stamped read dates in UTC while the
+  founder rules in Central time, which put his ruling a day before the
+  reading. Date fields in terms records now hold America/Chicago calendar
+  dates; evidence timestamps stay UTC, marked with a Z.
+- The first verification pass was right for the wrong reason: the database
+  refused every row only because no reviewer was named. Once the reviewer was
+  filled in, the NULL defect above showed itself. A refusal proves a rule only
+  when it is refused for the reason under test.
+
+### Open loops, on the founder
+
+1. Replies from IBJJF and JJWL.
+2. The GripWire export request: drafted, awaiting review.
+3. Applying the eleven records to production and staging (commands in each
+   file's header), after the merge.
+4. AJP activation: reading its listing page to record field 5, and whether a
+   parser is worth about two US events a year.
+5. FloSports' terms clause: a person must read it in a browser.
+6. Whether ALMANAC should read Smoothcomp's global calendar page, which the
+   existing review already covers.
+7. The migration that closes the NULL holes, in its own pull request.
+
+### Evidence index
+
+- The records: each file's header lists every request the session sent to
+  that company (UTC time, status, sha256).
+- Pull request #33: the stakes method, and the full disclosure of reads beyond
+  terms and robots.txt.

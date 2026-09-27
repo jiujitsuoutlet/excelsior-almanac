@@ -1,11 +1,25 @@
 -- Terms review record: ibjjf.com (International BJJ, Inc... the IBJJF)
 --
--- RESEARCH RECORD, NOT A FOUNDER RULING. Written by the 2026-09-26
--- off-Smoothcomp research session (Claude Opus 5.5) for the founder's review.
--- reviewed_by and reviewed_on stay NULL on purpose: field 10 names a human who
--- read the pages, and no human has yet. Applying this file writes ONE INACTIVE
--- row (active = 0). The gate refuses it twice over: no reviewer (field 10) and
--- the verdict (field 9). Nothing in this file lets the scout fetch anything.
+-- Ruled by the founder on 2026-09-26 (PR #33), on the evidence below, gathered
+-- the same evening by the off-Smoothcomp research session (Claude Opus 5.5).
+-- Verdict: not_allowed. Applying this file writes ONE row, inactive
+-- (active = 0), and the gate refuses it on the verdict (field 9). Nothing in
+-- this file lets the scout fetch anything.
+--
+-- Date fields hold America/Chicago calendar dates; evidence times are UTC.
+--
+-- PERMISSION ASKED, 2026-09-26: the founder sent the drafted request to
+-- ibjjf@ibjjf.com, as written. Answer pending. What the ask promised, so a
+-- yes is read as covering exactly this and nothing wider:
+--   reads:  the public calendar and the public page of each US championship;
+--           name, dates, city, venue, registration deadline, gi, no-gi or kids
+--   never:  registrations, brackets, results, rankings, anything about an athlete
+--   when:   once a night, 2 to 5 a.m. Central, no faster than one page per 10 s
+--   agent:  the pinned user agent from scout/src/identity.js
+--   IBJJF gets: members sent to IBJJF's own championship page to register,
+--           IBJJF credited on every event, no sale or sharing of its data,
+--           any change or removal done within a day of its request
+--   also asked: permission to link members to its championship pages
 --
 -- Evidence. Every request this session sent to IBJJF hosts, with the pinned
 -- user agent from scout/src/identity.js, each URL once, no redirect followed.
@@ -23,10 +37,12 @@
 -- No calendar, event, results, ranking, academy or registration page was
 -- requested, and nothing was requested from ibjjfdb.com or the IBJJF app.
 --
--- Apply only after the founder has read the pages and filled reviewed_by and
--- reviewed_on (or changed the verdict):
+-- Apply (production, then staging):
 --   npx wrangler d1 execute almanac --remote --config console/wrangler.toml --file scout/terms-reviews/ibjjf.sql
 --   npx wrangler d1 execute almanac-staging --remote --env staging --config console/wrangler.toml --file scout/terms-reviews/ibjjf.sql
+
+-- The reviewer must exist before a review can name them (foreign key).
+INSERT OR IGNORE INTO reviewers (email, role) VALUES ('paul.tokgozoglu@gmail.com', 'admin');
 
 INSERT INTO sources (
   id, host, tier, parser, page_types,
@@ -44,7 +60,7 @@ INSERT INTO sources (
 
   'https://ibjjf.com/terms-of-use',
   'Last updated October 6th 2025 (as printed on the page). Also read: https://learning.ibjjf.com/terms, the Rules Course site''s own Terms and Conditions (no date printed).',
-  '2026-09-27',
+  '2026-09-26',
 
   'PROHIBITED, in four places. Section 3, User Representations: "(3) you will not access the Services through automated or non-human means, whether through a bot, script or otherwise". Section 4, Prohibited Activities: "Systematically retrieve data or other content from the Services to create or compile, directly or indirectly, a collection, compilation, database, or directory without written permission from us." ... "Engage in any automated use of the system, such as using scripts to send comments or messages, or using any data mining, robots, or similar data gathering and extraction tools." ... "Except as may be the result of standard search engine or Internet browser usage, use, launch, develop, or distribute any automated system, including without limitation, any spider, robot, cheat utility, scraper, or offline reader that accesses the Services, or use or launch any unauthorized script or other software." Section 4 also: "Engage in unauthorized framing of or linking to the Services." Binding language, preamble: "You agree that by accessing the Services, you have read, understood, and agreed to be bound by all of these Legal Terms." WHAT THIS PROHIBITS: any bot or script on any IBJJF page at any rate, and (because the compile clause is not limited to bots) a person systematically copying IBJJF''s calendar into a database. The only carve-out is standard search engine or browser usage, which describes search engines and people browsing, not a data product. WHAT IT DOES NOT CLEARLY REACH (lawyer questions): (a) whether a plain link from a member app to a public championship page is "unauthorized ... linking"; (b) whether a coach entering one event the team is attending is "systematic" retrieval. A drafting gap does not help us: the Services definition reads "We operate , as well as any other related products and services that refer or link to these legal terms", but every ibjjf.com page links these terms in its footer. robots.txt allows everything except /admin and /wp-content/*, so robots is not the barrier; the terms are.',
 
@@ -57,11 +73,11 @@ INSERT INTO sources (
   '["/admin","/wp-content/*"]',
   NULL,
   'f1298157184ebf7245591840bf9c7811f11115e3b95d85d94e3dc7ba9df55ab4',
-  '2026-09-27',
+  '2026-09-26',
 
   'not_allowed',
-  'NEEDS WRITTEN PERMISSION (the schema has no such verdict word, so it is recorded as not_allowed). Path: the founder''s permission request to ibjjf@ibjjf.com, the address the terms themselves name. Until IBJJF says yes in writing: 1) no automated request of any kind to ibjjf.com, learning.ibjjf.com, ibjjfdb.com or the IBJJF app; 2) no human transcription of IBJJF''s calendar into ALMANAC, because the compile clause is not limited to bots; 3) no IBJJF rows taken from third parties that republish IBJJF''s calendar (BJJCompFinder, JiuJitsuBlog, Jits.gg, GripWire: see their records), because that is the same prohibited act routed through someone else; 4) hold IBJJF rows entirely, including Wikipedia-sourced ones (src-wikipedia), because every member-facing row links to ibjjf.com and the linking clause is unresolved. If IBJJF does not answer, ask a lawyer about the linking clause before any IBJJF row reaches a member. Recommended by the 2026-09-26 research session; not yet ruled by the founder.',
-  NULL,
-  NULL,
+  'NEEDS WRITTEN PERMISSION (the schema has no such verdict word, so it is recorded as not_allowed). PERMISSION ASKED 2026-09-26: the founder sent the drafted request to ibjjf@ibjjf.com, the address the terms themselves name; answer pending. A yes covers exactly the scope the ask promised (this file''s header); anything wider is a new ask. Until IBJJF says yes in writing: 1) no automated request of any kind to ibjjf.com, learning.ibjjf.com, ibjjfdb.com or the IBJJF app; 2) no human transcription of IBJJF''s calendar into ALMANAC, because the compile clause is not limited to bots; 3) no IBJJF rows taken from third parties that republish IBJJF''s calendar (BJJCompFinder, JiuJitsuBlog, Jits.gg, GripWire: see their records), because that is the same prohibited act routed through someone else; 4) hold IBJJF rows entirely, including Wikipedia-sourced ones (src-wikipedia), because every member-facing row links to ibjjf.com and the linking clause is unresolved. If IBJJF does not answer, ask a lawyer about the linking clause before any IBJJF row reaches a member. Ruled by the founder, 2026-09-26.',
+  'paul.tokgozoglu@gmail.com',
+  '2026-09-26',
   0
 );

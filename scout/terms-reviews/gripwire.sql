@@ -1,11 +1,14 @@
 -- Terms review record: www.gripwirebjj.com (GripWire BJJ, a US events directory)
 --
--- RESEARCH RECORD, NOT A FOUNDER RULING. Written by the 2026-09-26
--- off-Smoothcomp research session (Claude Opus 5.5) for the founder's review.
--- reviewed_by and reviewed_on stay NULL on purpose: field 10 names a human who
--- read the pages, and no human has yet. Applying this file writes ONE INACTIVE
--- row (active = 0). The gate refuses it (no reviewer, field 10). Nothing in
--- this file lets the scout fetch anything.
+-- Ruled by the founder on 2026-09-26 (PR #33), on the evidence below, gathered
+-- the same evening by the off-Smoothcomp research session (Claude Opus 5.5).
+-- Verdict: allowed_with_conditions, for an export GripWire chooses to share,
+-- never a crawl. Applying this file writes ONE row, inactive (active = 0). The
+-- record is complete, so the gate's only refusal is the inactive flag; nothing
+-- crawls it regardless (no alias, no parser), and activation is a separate
+-- founder step. Nothing in this file lets the scout fetch anything.
+--
+-- Date fields hold America/Chicago calendar dates; evidence times are UTC.
 --
 -- Evidence. Every request this session sent to GripWire, with the pinned user
 -- agent from scout/src/identity.js, each URL once, no redirect followed.
@@ -20,10 +23,12 @@
 -- The terms text sits inside the page's embedded Softr block data, not in its
 -- visible HTML; it was read from there.
 --
--- Apply only after the founder has read the pages and filled reviewed_by and
--- reviewed_on (or changed the verdict):
+-- Apply (production, then staging):
 --   npx wrangler d1 execute almanac --remote --config console/wrangler.toml --file scout/terms-reviews/gripwire.sql
 --   npx wrangler d1 execute almanac-staging --remote --env staging --config console/wrangler.toml --file scout/terms-reviews/gripwire.sql
+
+-- The reviewer must exist before a review can name them (foreign key).
+INSERT OR IGNORE INTO reviewers (email, role) VALUES ('paul.tokgozoglu@gmail.com', 'admin');
 
 INSERT INTO sources (
   id, host, tier, parser, page_types,
@@ -41,7 +46,7 @@ INSERT INTO sources (
 
   'https://www.gripwirebjj.com/terms-and-conditions',
   'Last updated: 2025 (as printed; no day or month).',
-  '2026-09-27',
+  '2026-09-26',
 
   'None found. The terms (sections 1 to 10) cover listing accuracy, injury liability, photographer listings, user submissions, external links and intellectual property; none mentions automated access, crawling or scraping. robots.txt, in full: "User-agent: *" then "Allow: /".',
 
@@ -54,11 +59,11 @@ INSERT INTO sources (
   '[]',
   NULL,
   '44f3f8eafdf064cf69acb05f23ee4dfc9ab5b3d67d81c64246bc29f7e438789a',
-  '2026-09-27',
+  '2026-09-26',
 
   'allowed_with_conditions',
-  'RECOMMENDED, NOT RULED. GripWire''s terms allow reading facts, but a plain request has nothing to read, so the only path is an export GripWire chooses to share (an Airtable shared view or CSV is the natural form). Conditions if that happens: 1) facts only (name, date, city, organizer, registration link), never GripWire''s written content or branding; 2) attribution to GripWire; 3) NEVER a source of IBJJF or JJWL rows until those organizers answer, because GripWire''s IBJJF facts come from IBJJF''s pages and would route around IBJJF''s own terms. Best use: the off-Smoothcomp tail (organizers on TicketLeap, NitroTickets and the like, who submit their own events to GripWire). Recommended by the 2026-09-26 research session; not yet ruled by the founder.',
-  NULL,
-  NULL,
+  'GripWire''s terms allow reading facts, but a plain request has nothing to read, so the only path is an export GripWire chooses to share (an Airtable shared view or CSV is the natural form). Conditions if that happens: 1) facts only (name, date, city, organizer, registration link), never GripWire''s written content or branding; 2) attribution to GripWire; 3) only organizers whose own terms allow their events to be collected, so GripWire must say where each listing comes from before any is used; 4) NEVER IBJJF or JJWL rows from GripWire, whatever those organizers answer, because GripWire''s IBJJF facts come from IBJJF''s pages and would route around IBJJF''s own terms (IBJJF and JJWL rows come only from the organizers themselves). Best use: the off-Smoothcomp tail (organizers on TicketLeap, NitroTickets and the like, who submit their own events to GripWire). Ruled by the founder, 2026-09-26.',
+  'paul.tokgozoglu@gmail.com',
+  '2026-09-26',
   0
 );

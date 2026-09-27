@@ -1,12 +1,13 @@
 -- Terms review record: www.bjjcompfinder.com (BJJCompFinder, a worldwide
 -- tournament aggregator)
 --
--- RESEARCH RECORD, NOT A FOUNDER RULING. Written by the 2026-09-26
--- off-Smoothcomp research session (Claude Opus 5.5) for the founder's review.
--- reviewed_by and reviewed_on stay NULL on purpose: field 10 names a human who
--- read the pages, and no human has yet. Applying this file writes ONE INACTIVE
--- row (active = 0). The gate refuses it twice over: no reviewer (field 10) and
--- the verdict (field 9). Nothing in this file lets the scout fetch anything.
+-- Ruled by the founder on 2026-09-26 (PR #33), on the evidence below, gathered
+-- the same evening by the off-Smoothcomp research session (Claude Opus 5.5).
+-- Verdict: not_allowed. Applying this file writes ONE row, inactive
+-- (active = 0), and the gate refuses it on the verdict (field 9). Nothing in
+-- this file lets the scout fetch anything.
+--
+-- Date fields hold America/Chicago calendar dates; evidence times are UTC.
 --
 -- Evidence. Every request this session sent to BJJCompFinder, with the pinned
 -- user agent from scout/src/identity.js, each URL once, no redirect followed,
@@ -25,10 +26,12 @@
 -- IBJJF, JJWL and AJP run against Smoothcomp). Nothing read was written to
 -- ALMANAC. Full URLs and body hashes are in the session's fetch log.
 --
--- Apply only after the founder has read the pages and filled reviewed_by and
--- reviewed_on (or changed the verdict):
+-- Apply (production, then staging):
 --   npx wrangler d1 execute almanac --remote --config console/wrangler.toml --file scout/terms-reviews/bjjcompfinder.sql
 --   npx wrangler d1 execute almanac-staging --remote --env staging --config console/wrangler.toml --file scout/terms-reviews/bjjcompfinder.sql
+
+-- The reviewer must exist before a review can name them (foreign key).
+INSERT OR IGNORE INTO reviewers (email, role) VALUES ('paul.tokgozoglu@gmail.com', 'admin');
 
 INSERT INTO sources (
   id, host, tier, parser, page_types,
@@ -46,7 +49,7 @@ INSERT INTO sources (
 
   NULL,
   'No terms page found: neither the homepage nor the organizer pages link one, and the search index shows none.',
-  '2026-09-27',
+  '2026-09-26',
 
   'None found (no terms). robots.txt, in full: "User-agent: *" then "Disallow:" (an empty Disallow, which allows everything).',
 
@@ -59,11 +62,11 @@ INSERT INTO sources (
   '[]',
   NULL,
   'e5c4b84484ee4216e9373be99380320c25dd94805f99f0a805846f087636553f',
-  '2026-09-27',
+  '2026-09-26',
 
   'not_allowed',
-  'NOT ALLOWED as an ALMANAC source, on provenance, not on its own terms (it has none). Reading its copy of IBJJF''s or JJWL''s calendar would be the prohibited act routed through a third party, which the founder''s line counts as circumvention. For Smoothcomp organizers it adds nothing ALMANAC cannot already read. Its one legitimate use was the market-size count recorded in the header, and it stays a measuring stick, never a data source. Recommended by the 2026-09-26 research session; not yet ruled by the founder.',
-  NULL,
-  NULL,
+  'NOT ALLOWED as an ALMANAC source, on provenance, not on its own terms (it has none). Reading its copy of IBJJF''s or JJWL''s calendar would be the prohibited act routed through a third party, which the founder''s line counts as circumvention. For Smoothcomp organizers it adds nothing ALMANAC cannot already read. Its one legitimate use was the market-size count recorded in the header, and it stays a measuring stick, never a data source. The reads recorded in the header are accepted this once, because they were disclosed; from now on research reads follow Scout''s crawl law, and a site''s terms are read before anything else on it. Ruled by the founder, 2026-09-26.',
+  'paul.tokgozoglu@gmail.com',
+  '2026-09-26',
   0
 );

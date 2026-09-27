@@ -1,11 +1,14 @@
 -- Terms review record: en.wikipedia.org (Wikimedia Foundation)
 --
--- RESEARCH RECORD, NOT A FOUNDER RULING. Written by the 2026-09-26
--- off-Smoothcomp research session (Claude Opus 5.5) for the founder's review.
--- reviewed_by and reviewed_on stay NULL on purpose: field 10 names a human who
--- read the pages, and no human has yet. Applying this file writes ONE INACTIVE
--- row (active = 0). The gate refuses it (no reviewer, field 10). Nothing in
--- this file lets the scout fetch anything.
+-- Ruled by the founder on 2026-09-26 (PR #33), on the evidence below, gathered
+-- the same evening by the off-Smoothcomp research session (Claude Opus 5.5).
+-- Verdict: allowed_with_conditions. Applying this file writes ONE row,
+-- inactive (active = 0). The record is complete, so the gate's only refusal
+-- is the inactive flag; nothing crawls it regardless (no alias, no parser),
+-- and activation is a separate founder step. Nothing in this file lets the
+-- scout fetch anything.
+--
+-- Date fields hold America/Chicago calendar dates; evidence times are UTC.
 --
 -- Evidence. Every request this session sent to Wikimedia hosts, with the
 -- pinned user agent from scout/src/identity.js, each URL once, no redirect
@@ -19,10 +22,12 @@
 -- the same company (the research wrapper spaced requests per hostname, not
 -- per company). No article was requested.
 --
--- Apply only after the founder has read the pages and filled reviewed_by and
--- reviewed_on (or changed the verdict):
+-- Apply (production, then staging):
 --   npx wrangler d1 execute almanac --remote --config console/wrangler.toml --file scout/terms-reviews/wikipedia.sql
 --   npx wrangler d1 execute almanac-staging --remote --env staging --config console/wrangler.toml --file scout/terms-reviews/wikipedia.sql
+
+-- The reviewer must exist before a review can name them (foreign key).
+INSERT OR IGNORE INTO reviewers (email, role) VALUES ('paul.tokgozoglu@gmail.com', 'admin');
 
 INSERT INTO sources (
   id, host, tier, parser, page_types,
@@ -40,7 +45,7 @@ INSERT INTO sources (
 
   'https://foundation.wikimedia.org/wiki/Policy:Terms_of_Use',
   'The current Terms of Use have been in force since 2023-06-07 (the page lists the previous version as effective "until June 7, 2023"); the page was last edited 21 February 2026.',
-  '2026-09-27',
+  '2026-09-26',
 
   'ALLOWED WITH LIMITS. The Terms of Use prohibit "Engaging in automated uses of the Project Websites that are abusive or disruptive of the services, violate acceptable usage policies where available, or have not been approved by the Wikimedia community;". API use: "By using our APIs, you agree to abide by all applicable policies governing the use of the APIs, which include but are not limited to the User-Agent Policy, the Robot Policy, and the API:Etiquette". The User-Agent Policy (not read this session) asks for an agent that names itself and gives contact details; the pinned agent does both. robots.txt opens /wiki/ articles to generic agents and closes /w/, /api/ and many maintenance paths to crawlers.',
 
@@ -53,11 +58,11 @@ INSERT INTO sources (
   '["/w/","/api/","/trap/","/wiki/Special:","and many project-maintenance paths; see the hashed file"]',
   NULL,
   '48b98d80c8444d37cdf50cc9a4d2257b66039477e581066d2356062a4cbd678f',
-  '2026-09-27',
+  '2026-09-26',
 
   'allowed_with_conditions',
-  'RECOMMENDED, NOT RULED. Clean but thin: Wikipedia covers only a handful of flagship IBJJF championships, often without the next edition''s date until close to the event, and none of the regional Opens a traveling member actually enters. Conditions: 1) article pages only, 10 seconds or more between requests; 2) facts only, never article text; 3) a member-facing row still links to the organizer''s page, so an IBJJF row sourced here waits on IBJJF''s answer about linking (see src-ibjjf). Recommended by the 2026-09-26 research session; not yet ruled by the founder.',
-  NULL,
-  NULL,
+  'Clean but thin: Wikipedia covers only a handful of flagship IBJJF championships, often without the next edition''s date until close to the event, and none of the regional Opens a traveling member actually enters. Conditions: 1) article pages only, 10 seconds or more between requests; 2) facts only, never article text; 3) a member-facing row still links to the organizer''s page, so an IBJJF row sourced here waits on IBJJF''s answer about linking (see src-ibjjf). Ruled by the founder, 2026-09-26.',
+  'paul.tokgozoglu@gmail.com',
+  '2026-09-26',
   0
 );

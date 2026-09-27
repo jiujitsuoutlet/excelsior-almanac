@@ -1,12 +1,16 @@
 -- Terms review record: ajptour.com (Abu Dhabi Jiu Jitsu Pro... AJP, the UAE
 -- Jiu-Jitsu Federation's tour), a white-labeled Smoothcomp host
 --
--- RESEARCH RECORD, NOT A FOUNDER RULING. Written by the 2026-09-26
--- off-Smoothcomp research session (Claude Opus 5.5) for the founder's review.
--- reviewed_by and reviewed_on stay NULL on purpose: field 10 names a human who
--- read the pages, and no human has yet. Applying this file writes ONE INACTIVE
--- row (active = 0). The gate refuses it (no reviewer, field 10). Nothing in
--- this file lets the scout fetch anything.
+-- Ruled by the founder on 2026-09-26 (PR #33), on the evidence below, gathered
+-- the same evening by the off-Smoothcomp research session (Claude Opus 5.5).
+-- Verdict: allowed_with_conditions, as its OWN source under Smoothcomp's
+-- rules, not a Smoothcomp alias. Applying this file writes ONE row, inactive
+-- (active = 0). The gate still refuses it: whether the listing page needs a
+-- login (field 5) stays unrecorded until that page is read under these rules,
+-- and activation is a separate founder step. Nothing in this file lets the
+-- scout fetch anything.
+--
+-- Date fields hold America/Chicago calendar dates; evidence times are UTC.
 --
 -- Evidence. Every request this session sent to Smoothcomp-platform hosts, with
 -- the pinned user agent from scout/src/identity.js, each URL once, no redirect
@@ -29,10 +33,12 @@
 -- No event, listing, registration or results page on ajptour.com or
 -- events.uaejjf.org was requested.
 --
--- Apply only after the founder has read the pages and filled reviewed_by and
--- reviewed_on (or changed the verdict):
+-- Apply (production, then staging):
 --   npx wrangler d1 execute almanac --remote --config console/wrangler.toml --file scout/terms-reviews/ajptour.sql
 --   npx wrangler d1 execute almanac-staging --remote --env staging --config console/wrangler.toml --file scout/terms-reviews/ajptour.sql
+
+-- The reviewer must exist before a review can name them (foreign key).
+INSERT OR IGNORE INTO reviewers (email, role) VALUES ('paul.tokgozoglu@gmail.com', 'admin');
 
 INSERT INTO sources (
   id, host, tier, parser, page_types,
@@ -50,7 +56,7 @@ INSERT INTO sources (
 
   'https://ajptour.com/en/about-us/terms-of-service',
   'Updated on: 2021-11-03, Version: 1.0 (as printed). Also read: https://ajptour.com/en/ajp-terms-and-conditions, the athlete membership agreement (no date printed). Smoothcomp''s agreements path, /en/agreements, returns 404 here, as it does on Smoothcomp organizer subdomains.',
-  '2026-09-27',
+  '2026-09-26',
 
   'None found. The Terms of Service cover user accounts, sharing athlete data with event organizers, and GDPR; they say nothing about automated access, crawling or scraping. The membership agreement''s prohibitions bind members only: "It is prohibited to the member to: Violate the agreements stated in this page. Be a part of activities and actions which will be damaging to the AJP administration." The servers are Smoothcomp''s, so Smoothcomp''s Acceptable Use Policy, Abuse of Resources clause (recorded in src-smoothcomp), governs load.',
 
@@ -63,12 +69,12 @@ INSERT INTO sources (
   '["/order/","/checkout","/scoreboard"]',
   10,
   '312e3e13bb11b8d626a95305dce10dc6115d866d07215ad30ecd6c805e362701',
-  '2026-09-27',
+  '2026-09-26',
 
   'allowed_with_conditions',
-  'RECOMMENDED, NOT RULED. Allowed with conditions as its own source, not as a Smoothcomp alias: the 2026-09-20 alias rule makes a host that serves its own different terms not_allowed as an alias, and ajptour.com serves AJP''s own terms. Conditions: 1) the public listing page only, never an event page (listing_only, same as Smoothcomp); 2) at least 10 seconds between requests, on a clock SHARED with src-smoothcomp, because the servers are Smoothcomp''s; 3) facts only, never AJP text, images or designs; 4) honest user agent; stop on a 403 or on any request from AJP or Smoothcomp. Founder questions: does the alias rule extend to white-label domains (if yes, this becomes not_allowed), and is a parser worth it for about two US events a year (one upcoming: AJP Tour USA National, Dallas, 2026-10-31)? Recommended by the 2026-09-26 research session; not yet ruled by the founder.',
-  NULL,
-  NULL,
+  'Allowed with conditions, as its own source under Smoothcomp''s rules, not as a Smoothcomp alias (ajptour.com serves AJP''s own terms). Conditions: 1) the public listing page only, never an event page (listing_only, same as Smoothcomp); 2) at least 10 seconds between requests, on a clock SHARED with src-smoothcomp, because the servers are Smoothcomp''s; 3) facts only, never AJP text, images or designs; 4) honest user agent; stop on a 403 or on any request from AJP or Smoothcomp. Not yet decided: activation, which first needs the listing page read under these rules to record field 5, and whether a parser is worth it for about two US events a year (one upcoming: AJP Tour USA National, Dallas, 2026-10-31). Ruled by the founder, 2026-09-26.',
+  'paul.tokgozoglu@gmail.com',
+  '2026-09-26',
   0,
   'listing_only'
 );
