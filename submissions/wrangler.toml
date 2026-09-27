@@ -1,0 +1,113 @@
+# ALMANAC Tier 3 public submission form (founder ruling, 2026-09-27):
+# "ORGANIZER SUBMISSION FORM: build it. Submissions land at needs_review
+# with their own provenance, same queue, no new approval path. Spam
+# protection, HTTPS link validation at submit. Own PR." This is that PR.
+#
+# ARCHITECTURE.md line 44 already named this exact worker before it was
+# built: "Tier 3 accepts public submissions and console-entered rows from
+# coaches." Console's own hand-entry path (addEvent, console/src/data.js)
+# already writes Tier 3 rows for the coach half; this worker is the other
+# half, same insert path, same actor field shape ('organizer:<email>'
+# instead of a reviewer's own email -- review_log.actor has no FK to
+# reviewers, by design, see its own column comment).
+#
+# Deliberately NOT behind Cloudflare Access, unlike the console -- an
+# organizer with no jiujitsuoutlet.com identity must be able to reach
+# this. That is exactly why spam protection lives here instead: Turnstile
+# (Cloudflare's own CAPTCHA, no third-party dependency) plus a native
+# Cloudflare Rate Limiting binding (no new D1 table for this worker-local
+# concern) plus a honeypot field real browsers never fill.
+#
+# Identifiers only; no secrets here. TURNSTILE_SECRET_KEY and
+# OPENCAGE_API_KEY (same geocoding key the console already uses) are set
+# via `wrangler secret put`.
+name = "almanac-submissions"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+account_id = "bbe6d5f6cc43632eafdd5ef854f48a25"
+workers_dev = true
+
+# Two things had to both be true before index.html's Turnstile site-key
+# injection would ever run, found the hard way: `binding` must be named
+# explicitly or env.ASSETS is undefined in the Worker (assets still
+# serve, silently bypassing this Worker's own fetch() entirely, with no
+# error -- the placeholder just never gets replaced); and without
+# run_worker_first, a path matching a static file is served directly by
+# the platform and this Worker's fetch() never runs for it at all.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/"]
+
+# TURNSTILE_SITE_KEY is public (embedded in the served HTML by design,
+# unlike TURNSTILE_SECRET_KEY which is a `wrangler secret put`). Empty
+# here on purpose -- no real Turnstile widget exists yet; this must be
+# set to a real site key, and TURNSTILE_SECRET_KEY set as a secret,
+# before this environment goes live. Until then the form renders with a
+# broken widget and every real submission is refused by the same
+# fail-closed check that refuses one with no secret configured at all.
+[vars]
+ENVIRONMENT = "production"
+TURNSTILE_SITE_KEY = ""
+
+[[d1_databases]]
+binding = "DB"
+database_name = "almanac"
+database_id = "c884b684-1954-4b50-a20f-7d94a62b457a"
+migrations_dir = "../migrations"
+
+# One submission per IP per window -- generous enough for a real
+# organizer submitting a handful of real events, tight enough that a
+# script cannot flood the queue. Cloudflare's own binding: no D1 table,
+# no migration, state lives at Cloudflare's edge.
+[[unsafe.bindings]]
+name = "SUBMIT_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "3927"
+simple = { limit = 5, period = 60 }
+
+# Staging: a separate database, same as the console's and the scout's.
+[env.staging]
+name = "almanac-submissions-staging"
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
+TURNSTILE_SITE_KEY = ""
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "almanac-staging"
+database_id = "64dcd0c7-3c5a-4ca6-ae27-c8edba3a8a70"
+migrations_dir = "../migrations"
+
+[[env.staging.unsafe.bindings]]
+name = "SUBMIT_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "3928"
+simple = { limit = 5, period = 60 }
+
+# Test. A throwaway LOCAL database for the automated battery. Never remote.
+[env.test]
+name = "almanac-submissions-test"
+
+# Cloudflare's own published Turnstile TEST credentials (documented,
+# public, meant exactly for this -- not a secret, not a guess). This
+# sitekey/secret pair always passes verification against the REAL
+# Cloudflare siteverify endpoint, so the integration battery proves the
+# real HTTP call works without needing a real widget or a real human.
+[env.test.vars]
+ENVIRONMENT = "staging"
+TURNSTILE_SITE_KEY = "1x00000000000000000000AA"
+TURNSTILE_SECRET_KEY = "1x0000000000000000000000000000000AA"
+
+[[env.test.d1_databases]]
+binding = "DB"
+database_name = "almanac-submissions-test"
+database_id = "00000000-0000-4000-8000-000000000001"
+migrations_dir = "../migrations"
+
+[[env.test.unsafe.bindings]]
+name = "SUBMIT_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "3929"
+simple = { limit = 5, period = 60 }
