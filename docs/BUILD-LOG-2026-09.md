@@ -168,7 +168,7 @@ either database.
 | Shipped | Proven by |
 |---|---|
 | Eleven terms-review records in `scout/terms-reviews/`: IBJJF, JJWL, SJJIF, ASJJF, AJP, GripWire, BJJCompFinder, JiuJitsuBlog, FloGrappling, Wikipedia, Jits.gg | Every record loads on top of all eight migrations in a throwaway database; every quoted clause machine-matched against the page text actually fetched (39 fragments, 0 misses); `scout/src/gate.js` refuses all eleven as stored; unit suite 264/264. **The founder's ruling on every verdict, 2026-09-26** |
-| Permission requests to IBJJF and JJWL | Drafted in the session; sent by the founder as written, 2026-09-26; recorded as pending in both records, with the exact scope the ask promised |
+| Permission requests to IBJJF and JJWL | Drafted in the session and approved by the founder as written, 2026-09-26; sent 2026-10-04 from paul.tokgozoglu@gmail.com (an earlier version of this entry said 2026-09-26: the founder had said he was sending them, and none had gone out); recorded as pending in both records, with the exact scope the ask promised |
 
 ### What the research found
 
@@ -237,7 +237,7 @@ either database.
 ### Open loops, on the founder
 
 1. Replies from IBJJF and JJWL.
-2. The GripWire export request: drafted, awaiting review.
+2. A reply from GripWire to the export request (sent 2026-10-04).
 3. Applying the eleven records to production and staging (commands in each
    file's header), after the merge.
 4. AJP activation: reading its listing page to record field 5, and whether a

@@ -8,9 +8,11 @@
 --
 -- Date fields hold America/Chicago calendar dates; evidence times are UTC.
 --
--- PERMISSION ASKED, 2026-09-26: the founder sent the drafted request to
--- info@jjworldleague.com, as written. Answer pending. What the ask promised,
--- so a yes is read as covering exactly this and nothing wider:
+-- PERMISSION ASKED, 2026-10-04: the request the founder approved on
+-- 2026-09-26 was sent to info@jjworldleague.com, as written, from
+-- paul.tokgozoglu@gmail.com at 2026-10-05T02:51:59Z (Gmail message
+-- 1a109f9aa2f50f76). Answer pending. What the ask promised, so a yes is read
+-- as covering exactly this and nothing wider:
 --   reads:  the public event pages; name, date, city, venue, registration
 --           deadline, divisions offered (gi, no-gi, youth, adult)
 --   never:  registrations, brackets, results, anything about a competitor, the app
@@ -68,7 +70,7 @@ INSERT INTO sources (
   '2026-09-26',
 
   'not_allowed',
-  'NEEDS WRITTEN PERMISSION (recorded as not_allowed, the schema''s word). PERMISSION ASKED 2026-09-26: the founder sent the drafted request to info@jjworldleague.com; answer pending. A yes covers exactly the scope the ask promised (this file''s header); anything wider is a new ask. Until JJWL says yes: no spidering, crawling or scraping of any JJWL page or app, and no JJWL rows taken from third parties that republish JJWL''s calendar (BJJCompFinder, Jits.gg: see their records). A coach typing in one JJWL event the team is attending is not spidering, crawling or scraping; whether it is "copy ... any portion of the Service" is a lawyer question, low risk, and the founder''s call. Ruled by the founder, 2026-09-26.',
+  'NEEDS WRITTEN PERMISSION (recorded as not_allowed, the schema''s word). PERMISSION ASKED 2026-10-04: the approved request went to info@jjworldleague.com; answer pending. A yes covers exactly the scope the ask promised (this file''s header); anything wider is a new ask. Until JJWL says yes: no spidering, crawling or scraping of any JJWL page or app, and no JJWL rows taken from third parties that republish JJWL''s calendar (BJJCompFinder, Jits.gg: see their records). A coach typing in one JJWL event the team is attending is not spidering, crawling or scraping; whether it is "copy ... any portion of the Service" is a lawyer question, low risk, and the founder''s call. Ruled by the founder, 2026-09-26.',
   'paul.tokgozoglu@gmail.com',
   '2026-09-26',
   0

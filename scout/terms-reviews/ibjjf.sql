@@ -8,9 +8,11 @@
 --
 -- Date fields hold America/Chicago calendar dates; evidence times are UTC.
 --
--- PERMISSION ASKED, 2026-09-26: the founder sent the drafted request to
--- ibjjf@ibjjf.com, as written. Answer pending. What the ask promised, so a
--- yes is read as covering exactly this and nothing wider:
+-- PERMISSION ASKED, 2026-10-04: the request the founder approved on
+-- 2026-09-26 was sent to ibjjf@ibjjf.com, as written, from
+-- paul.tokgozoglu@gmail.com at 2026-10-05T02:51:58Z (Gmail message
+-- 1a109f9a968822f2). Answer pending. What the ask promised, so a yes is read
+-- as covering exactly this and nothing wider:
 --   reads:  the public calendar and the public page of each US championship;
 --           name, dates, city, venue, registration deadline, gi, no-gi or kids
 --   never:  registrations, brackets, results, rankings, anything about an athlete
@@ -76,7 +78,7 @@ INSERT INTO sources (
   '2026-09-26',
 
   'not_allowed',
-  'NEEDS WRITTEN PERMISSION (the schema has no such verdict word, so it is recorded as not_allowed). PERMISSION ASKED 2026-09-26: the founder sent the drafted request to ibjjf@ibjjf.com, the address the terms themselves name; answer pending. A yes covers exactly the scope the ask promised (this file''s header); anything wider is a new ask. Until IBJJF says yes in writing: 1) no automated request of any kind to ibjjf.com, learning.ibjjf.com, ibjjfdb.com or the IBJJF app; 2) no human transcription of IBJJF''s calendar into ALMANAC, because the compile clause is not limited to bots; 3) no IBJJF rows taken from third parties that republish IBJJF''s calendar (BJJCompFinder, JiuJitsuBlog, Jits.gg, GripWire: see their records), because that is the same prohibited act routed through someone else; 4) hold IBJJF rows entirely, including Wikipedia-sourced ones (src-wikipedia), because every member-facing row links to ibjjf.com and the linking clause is unresolved. If IBJJF does not answer, ask a lawyer about the linking clause before any IBJJF row reaches a member. Ruled by the founder, 2026-09-26.',
+  'NEEDS WRITTEN PERMISSION (the schema has no such verdict word, so it is recorded as not_allowed). PERMISSION ASKED 2026-10-04: the approved request went to ibjjf@ibjjf.com, the address the terms themselves name; answer pending. A yes covers exactly the scope the ask promised (this file''s header); anything wider is a new ask. Until IBJJF says yes in writing: 1) no automated request of any kind to ibjjf.com, learning.ibjjf.com, ibjjfdb.com or the IBJJF app; 2) no human transcription of IBJJF''s calendar into ALMANAC, because the compile clause is not limited to bots; 3) no IBJJF rows taken from third parties that republish IBJJF''s calendar (BJJCompFinder, JiuJitsuBlog, Jits.gg, GripWire: see their records), because that is the same prohibited act routed through someone else; 4) hold IBJJF rows entirely, including Wikipedia-sourced ones (src-wikipedia), because every member-facing row links to ibjjf.com and the linking clause is unresolved. If IBJJF does not answer, ask a lawyer about the linking clause before any IBJJF row reaches a member. Ruled by the founder, 2026-09-26.',
   'paul.tokgozoglu@gmail.com',
   '2026-09-26',
   0
