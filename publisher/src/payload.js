@@ -2,12 +2,15 @@
 // no D1 and no network here... `index.js` is the only place that touches
 // either, so this file can be tested without a database or a socket.
 //
-// The app's tournaments table has no country, lat, lon, event_type, or
-// stale-status columns yet (v2.53 authorized them; nothing has migrated them
-// on the app side). This mapping ships only what the app can already accept,
-// so the first row reaching Fire does not wait on an app-side schema change.
-// Adding those columns is a separate, additive app migration (ARCHITECTURE.md
-// Section 11's "App-side prerequisite"), not this file's job.
+// The app's tournaments table gained country/lat/lon/event_type/
+// entry_restriction 2026-09-23 (excelsior-master migrations
+// 20260918120000-20260918150000, applied to staging then production as
+// part of the GUARDIAN release). This mapping now ships them. Found the
+// same day: this function HAD been emitting gi/nogi/kids all along, but
+// almanac-ingest's own upsert never wrote them -- a two-repo gap neither
+// side's own tests could see alone, since each tested its half in
+// isolation. There is still no 'stale' equivalent on the app side beyond
+// mapStatus()'s existing stale->expired translation below.
 
 // The fields the app's `tournaments` table accepts today, in the shape its
 // migration defines them (`supabase/migrations/20260706000001_tournaments.sql`
@@ -35,6 +38,11 @@ export function toTournamentRow(event) {
     nogi: Boolean(event.nogi),
     kids: Boolean(event.kids),
     source_url: event.source_url,
+    country: event.country ?? null,
+    event_type: event.event_type ?? null,
+    entry_restriction: event.entry_restriction ?? null,
+    lat: Number.isFinite(event.lat) ? event.lat : null,
+    lon: Number.isFinite(event.lon) ? event.lon : null,
     status: mapStatus(event.status),
   };
 }
