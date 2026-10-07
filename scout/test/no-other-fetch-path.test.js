@@ -118,6 +118,7 @@ const SCRIPT_EXEMPTIONS = {
   'scripts/verify-fetcher.sh': 'the fetcher\'s OWN battery: it exercises fetchOnce directly, and only ever against a local HTTPS server on localhost (asserted below)',
   'scripts/console-walkthrough.mjs': 'drives the console\'s own API on localhost; not a crawl target',
   'scripts/review-aliases.mjs': 'pre-activation terms review: a host is reviewed BEFORE it can be an active alias, so the gate cannot authorise it by construction; human-run; reads only robots.txt and the terms page',
+  'scripts/publish-approved-to-app.mjs': 'one POST to the Excelsior app\'s OWN almanac-ingest edge function (https://<project>.supabase.co/functions/v1/almanac-ingest), never a crawled host; human-run, staging-preview refresh only (#31); signed with the target app\'s own secret',
 };
 
 test('in scripts/, every network call site either goes through the gate or is a named, reasoned exemption -- and no exemption is stale', () => {
