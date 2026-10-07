@@ -93,6 +93,8 @@ Signals recorded per row: link liveness, date sanity, second-source corroboratio
 
 Two automatic approval rules exist on paper: a deterministic Tier 1 rule and a proposed Tier 2 rule keyed to the signals above. Both stay off. Enabling either one requires a dated amendment and the founder's ruling on a measured precision number, never a code change alone.
 
+**Tier 1 rule enabled (MAD v2.60, 2026-10-07).** `tier1_listing_v1` is on, by the founder's ruling of 2026-10-05 (278 decisions, no wrong row found). Each night, after the link check, `scout/src/autoapprove.js` approves a waiting row only when every deterministic check holds: an active, terms-reviewed organizer alias; `country = 'US'`; a start date after today and within 400 days; coordinates and an established state; an https registration link on the organizer's own host; still on the organizer's listing within 72 hours; no other approved or waiting row with the same date, city, state and name (ignoring case and punctuation); and no human ever sent the row back or rejected it. At most 300 a night. Each approval is a `review_log` transition by `system:auto-approve` naming the rule, with five `row_signals` (date, geocode, robots/terms, duplicate, and link freshness recorded as structural with no pass mark, since these event pages refuse plain HTTP). Kill switch: `UPDATE approval_rules SET enabled = 0 WHERE id = 'tier1_listing_v1'`; the transition trigger then refuses every system approval. The Tier 2 rule stays off. If the `date_conflicted` flag above ships, the rule must exclude conflicted rows in the same change.
+
 ## 8. What the scout will not do
 
 Copied word for word from v2.54 decision 5:
