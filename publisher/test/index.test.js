@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { runPublishCycle } from '../src/index.js';
+import { runPublishCycle, ANOMALY_CEILING } from '../src/index.js';
 import { MAX_BATCH_ROWS } from '../src/payload.js';
 
 function fixtureRow(overrides = {}) {
@@ -65,8 +65,36 @@ test('nothing due: the cycle sends nothing and touches no D1 write', async () =>
   assert.equal(db.calls.run.length, 0);
 });
 
-test('over the cap: nothing is sent, and the app is never called', async () => {
-  const rows = Array.from({ length: MAX_BATCH_ROWS + 1 }, (_, i) => fixtureRow({ id: `evt_${i}` }));
+test('a backlog over the batch cap drains oldest-first, one batch per cycle, nothing dropped', async () => {
+  // 275: the real backlog waiting at the 2026-10-05 release gate.
+  const rows = Array.from({ length: 275 }, (_, i) => fixtureRow({ id: `evt_${String(i).padStart(3, '0')}` }));
+  const db = fakeDb({ rows });
+  let sentBody;
+  const result = await runPublishCycle({
+    db,
+    fetchFn: async (_url, init) => { sentBody = init.body; return { ok: true, status: 200 }; },
+    secret: 'test-secret',
+    appIngestUrl: 'https://app.example/almanac-ingest',
+    now: () => Date.parse('2026-09-16T22:00:00.000Z'),
+  });
+  assert.equal(result.outcome, 'published');
+  assert.equal(result.sent, MAX_BATCH_ROWS, 'never more than the per-batch cap the app enforces');
+  assert.equal(result.pending, 275 - MAX_BATCH_ROWS, 'the rest is reported, not silently dropped');
+  const body = JSON.parse(sentBody);
+  assert.equal(body.rows.length, MAX_BATCH_ROWS);
+  assert.equal(body.rows[0].almanac_id, 'evt_000', 'the oldest due row goes first (SELECT_DUE_SQL orders by updated_at)');
+  // Only the rows actually sent are marked; the other 75 stay due for the
+  // next cycle.
+  const markedIds = JSON.parse(db.calls.bind.at(-1)[1]);
+  assert.equal(markedIds.length, MAX_BATCH_ROWS);
+  assert.ok(!markedIds.includes('evt_274'), 'an unsent row is never marked published');
+  // The SELECT asked for up to the volume-alert ceiling plus one, so the
+  // cycle can tell a backlog from a runaway.
+  assert.deepEqual(db.calls.bind[0], [ANOMALY_CEILING + 1]);
+});
+
+test('over the volume-alert ceiling: nothing is sent, and the app is never called', async () => {
+  const rows = Array.from({ length: ANOMALY_CEILING + 1 }, (_, i) => fixtureRow({ id: `evt_${i}` }));
   const db = fakeDb({ rows });
   let fetchCalled = false;
   const result = await runPublishCycle({
@@ -76,9 +104,10 @@ test('over the cap: nothing is sent, and the app is never called', async () => {
     appIngestUrl: 'https://app.example/almanac-ingest',
     now: () => Date.parse('2026-09-16T22:00:00.000Z'),
   });
-  assert.equal(result.outcome, 'over_cap');
-  assert.equal(result.pending, MAX_BATCH_ROWS + 1);
-  assert.equal(fetchCalled, false, 'an over-cap cycle must not silently truncate and send anyway');
+  assert.equal(result.outcome, 'volume_alert');
+  assert.equal(result.pending, ANOMALY_CEILING + 1);
+  assert.equal(fetchCalled, false, 'a runaway backlog must wait for a person, not drain itself');
+  assert.equal(db.calls.run.length, 0);
 });
 
 test('a normal batch is signed, sent, and marks exactly those rows published', async () => {
