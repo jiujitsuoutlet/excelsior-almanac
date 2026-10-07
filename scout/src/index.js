@@ -16,8 +16,9 @@
 // Gates (see scout/wrangler.toml): staging and production both run nightly
 // (staging authorized 2026-09-20, production 2026-09-21 after a clean
 // unattended staging tick). scheduled() still refuses unless
-// env.SCOUT_ENABLED is exactly "true". Nothing this Worker writes can reach a
-// member: every row lands needs_review, and only a human reviewer approves.
+// env.SCOUT_ENABLED is exactly "true". Every row lands needs_review; a human
+// reviewer approves it, or, since MAD v2.60, the one enabled rule
+// (autoapprove.js) does when every deterministic check holds.
 
 import { runRobotsRecheck } from './robotscheck.js';
 import { runDiscovery } from './discover.js';
@@ -25,6 +26,7 @@ import { writeListingDrafts } from './listingdrafts.js';
 import * as smoothcompParser from './parsers/smoothcomp.js';
 import { runIngest } from './ingest.js';
 import { runLinkCheck } from './linkcheck.js';
+import { runAutoApprove, RULE_ID } from './autoapprove.js';
 import {
   d1ClaimSlot,
   d1ActiveAliasesWithSourceLoader,
@@ -186,7 +188,23 @@ export async function runCrawlCycle(env) {
     throw err;
   }
 
-  return { robots: robotsResult, discovery: discoveryResult, ingest: ingestResult, linkCheck: linkCheckResult };
+  // Phase 5 (MAD v2.60, 2026-10-07): the first automatic approval rule,
+  // last, so it sees tonight's drafts and the link check's demotions. It
+  // fetches nothing. Rule switched off -> it approves nothing, and says so.
+  const autoApproveRunId = await openRun({ component: TIER1_COMPONENT, region: 'auto_approve', startedAt: Date.now() });
+  let autoApproveResult;
+  try {
+    autoApproveResult = await runAutoApprove({ db: env.DB, now: Date.now() });
+    const summary = autoApproveResult.ruleEnabled
+      ? `${autoApproveResult.approved} approved by ${RULE_ID}${autoApproveResult.held.length ? `; ${summariseSkips(autoApproveResult.held)}` : ''}`
+      : `${RULE_ID} is switched off; approved nothing`;
+    await closeRun({ runId: autoApproveRunId, status: 'succeeded', finishedAt: Date.now(), pagesFetched: 0, errors: 0, hostsSkipped: 0, errorText: summary });
+  } catch (err) {
+    await closeRun({ runId: autoApproveRunId, status: 'failed', finishedAt: Date.now(), pagesFetched: 0, errors: 1, hostsSkipped: 0, errorText: describeError(err) });
+    throw err;
+  }
+
+  return { robots: robotsResult, discovery: discoveryResult, ingest: ingestResult, linkCheck: linkCheckResult, autoApprove: autoApproveResult };
 }
 
 export default {
