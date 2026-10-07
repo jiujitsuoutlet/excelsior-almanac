@@ -7,8 +7,16 @@ compatibility_date = "2026-09-01"
 account_id = "bbe6d5f6cc43632eafdd5ef854f48a25"
 workers_dev = true
 
+# `binding` must be named explicitly or env.ASSETS is undefined in the Worker.
+# Harmless today -- the platform serves this directory directly before the
+# Worker's fetch() ever runs for a non-/api/ path, so src/index.js's
+# `env.ASSETS ? ... : 404` fallback is dead code either way -- but it would
+# throw instead of serving if that routing precedence ever changed. No
+# run_worker_first here, unlike submissions/wrangler.toml: nothing needs to
+# inject into this directory's already-static HTML.
 [assets]
 directory = "./public"
+binding = "ASSETS"
 
 # Production. Deployed 2026-09-17 behind Cloudflare Access: identity
 # provider GitHub (tested, "Your connection works!"), application "ALMANAC
