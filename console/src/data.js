@@ -264,7 +264,14 @@ function pick(obj, fields) {
   return Object.fromEntries(fields.map((f) => [f, obj[f]]));
 }
 
-export async function addEvent(db, value, actor, geocode) {
+// `extra` is additive, for the OTHER Tier 3 caller (the public submission
+// Worker, submissions/src/index.js) -- console's own hand-entry call site
+// below passes nothing, so state_source/link_check_method land NULL for
+// it exactly as before this existed (an omitted column and an explicit
+// null bind to the identical row). One insert path, two callers, per the
+// hand-copy law: a second copy of "how to correctly write an events row"
+// is exactly the kind of duplicate that drifts.
+export async function addEvent(db, value, actor, geocode, extra = {}) {
   const id = crypto.randomUUID();
   const event = {
     id,
@@ -289,6 +296,8 @@ export async function addEvent(db, value, actor, geocode) {
     lat: geocode?.lat ?? null,
     lon: geocode?.lon ?? null,
     geocode_confidence: geocode?.confidence ?? null,
+    state_source: extra.state_source ?? null,
+    link_check_method: extra.link_check_method ?? null,
   };
   event.dedupe_key = dedupeKey(event);
   const cols = Object.keys(event);
@@ -298,7 +307,7 @@ export async function addEvent(db, value, actor, geocode) {
     db.prepare(`
       INSERT INTO review_log (entity_type, entity_id, action, actor, after_json)
       VALUES ('event', ?1, 'create', ?2, ?3)
-    `).bind(id, actor, JSON.stringify({ source: 'console hand entry', geocoded: Boolean(geocode) })),
+    `).bind(id, actor, JSON.stringify({ source: extra.logSource ?? 'console hand entry', geocoded: Boolean(geocode), ...extra.logExtra })),
     transition(db, id, 'draft', 'needs_review', actor),
   ]);
   return { id, status: 'needs_review', geocoded: Boolean(geocode) };
